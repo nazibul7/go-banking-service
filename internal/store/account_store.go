@@ -1,0 +1,85 @@
+package store
+
+import (
+	"banking-app/internal/model"
+	"context"
+	"database/sql"
+)
+
+type AccountStore struct {
+	db *sql.DB
+}
+
+// returning *model.Account instead of model.Account because:
+//
+// 1. nil clearly represents "no result" (e.g. account not found),
+//    whereas a zero-value struct like {ID:0, Balance:0} is ambiguous.
+//
+// 2. avoids copying the struct on every return; important as the struct grows.
+//
+// 3. allows functions to modify the same object (no accidental copies)
+
+type AccountStorer interface {
+	CreateAccount(ctx context.Context, balance int) (*model.Account, error)
+	GetAccount(ctx context.Context, id int) (*model.Account, error)
+	UpdateAccount(ctx context.Context, id int, amount int) error
+	DeleteAccount(ctx context.Context, id int) error
+}
+
+func NewAccountStore(db *sql.DB) *AccountStore {
+	return &AccountStore{db: db}
+}
+
+func (s *AccountStore) CreateAccount(ctx context.Context, balance int) (*model.Account, error) {
+	query := `INSERT INTO account (balance) VALUES ($1) RETURNING id`
+	var id int
+	err := s.db.QueryRowContext(ctx, query, balance).Scan(&id)
+	if err != nil {
+		return nil, err
+	}
+	return &model.Account{ID: id, Balance: balance}, nil
+}
+
+func (s *AccountStore) GetAccount(ctx context.Context, id int) (*model.Account, error) {
+	query := `SELECT * FROM accounts WHERE id=$1`
+	var acc model.Account
+	err := s.db.QueryRowContext(ctx, query, id).Scan(&acc.ID, &acc.Balance)
+	if err != nil {
+		return nil, err
+	}
+	return &acc, nil
+}
+
+func (s *AccountStore) UpdateAccount(ctx context.Context, id int, amount int) error {
+	query := `UPDATE accounts SET balance = balance + $1 WHERE id=$2`
+
+	result, err := s.db.ExecContext(ctx, query, amount, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows==0{
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *AccountStore) DeleteAccount(ctx context.Context, id int) error {
+	query := `DELETE FROM accounts WHERE id=$1`
+
+	result, err := s.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows==0{
+		return sql.ErrNoRows
+	}
+	return nil
+}
