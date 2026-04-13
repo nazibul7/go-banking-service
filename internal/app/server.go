@@ -5,10 +5,10 @@ import (
 	"time"
 )
 
-func NewServer(addr string, handler *http.Handler) *http.Server {
+func NewServer(addr string, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:         addr,
-		Handler:      *handler,
+		Handler:      handler,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
