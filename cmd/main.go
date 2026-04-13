@@ -19,16 +19,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("DB connection error: %v\n", err)
 	}
+	// Ensure the connection is closed when main exits
+	defer db.Close()
 
 	store := store.NewAccountStore(db)
 	handler := handler.NewAccountHandler(store)
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("POST /accounts/create", handler.CreateAccount)
-	
+	mux.HandleFunc("POST /account/create", handler.CreateAccount)
+	mux.HandleFunc("GET /account/{id}", handler.GetAccount)
+	mux.HandleFunc("PATCH /account/{id}/deposit", handler.Deposit)
+	mux.HandleFunc("PATCH /account/{id}/withdraw", handler.Withdraw)
+	mux.HandleFunc("DELETE /account/{id}", handler.DeleteAccount)
 
-	server := app.NewServer(":8080", nil)
+	server := app.NewServer(":8080", mux)
 	if err := app.RunWithGracefulShutdown(server, 10*time.Second); err != nil {
 		log.Fatalf("Server error %v\n", err)
 	}

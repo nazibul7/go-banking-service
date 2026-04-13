@@ -12,8 +12,6 @@ func NewPostgresDB(dbURL string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Ensure the connection is closed when main exits
-	defer db.Close()
 
 	db.SetMaxOpenConns(20)
 	db.SetMaxIdleConns(20)
