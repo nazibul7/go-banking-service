@@ -31,7 +31,7 @@ func NewAccountStore(db *sql.DB) *AccountStore {
 }
 
 func (s *AccountStore) CreateAccount(ctx context.Context, balance int) (*model.Account, error) {
-	query := `INSERT INTO account (balance) VALUES ($1) RETURNING id`
+	query := `INSERT INTO accounts (balance) VALUES ($1) RETURNING id`
 	var id int
 	err := s.db.QueryRowContext(ctx, query, balance).Scan(&id)
 	if err != nil {
