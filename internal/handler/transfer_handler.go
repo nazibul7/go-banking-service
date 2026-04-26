@@ -1,7 +1,8 @@
 package handler
 
 import (
-	"banking-app/internal/store"
+	"banking-app/internal/model"
+	"banking-app/internal/service"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,21 +11,21 @@ import (
 )
 
 type AccountHandler struct {
-	store store.AccountStorer
+	service *service.AccountService
 }
 
-func NewAccountHandler(store store.AccountStorer) *AccountHandler {
-	return &AccountHandler{store: store}
+func NewAccountHandler(service *service.AccountService) *AccountHandler {
+	return &AccountHandler{service: service}
 }
 
 func (h *AccountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {
-	var balance int
-	if err := json.NewDecoder(r.Body).Decode(&balance); err != nil {
+	var req model.CreateAccountRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
-	if balance < 0 {
+	if req.Balance < 0 {
 		http.Error(w, "balance can not be negative", http.StatusBadRequest)
 		return
 	}
@@ -32,7 +33,7 @@ func (h *AccountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	account, err := h.store.CreateAccount(ctx, balance)
+	account, err := h.service.CreateAccount(ctx, req.Balance)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			http.Error(w, "request timed out", http.StatusGatewayTimeout)
@@ -45,7 +46,7 @@ func (h *AccountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(account); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
 	}
 }
 
@@ -56,9 +57,11 @@ func (h *AccountHandler) GetAccount(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	account, err := h.store.GetAccount(ctx, id)
+
+	account, err := h.service.GetAccount(ctx, id)
 
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -81,19 +84,22 @@ func (h *AccountHandler) Deposit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	var depoAmount int
-	if err := json.NewDecoder(r.Body).Decode(&depoAmount); err != nil {
+	var req model.AmountRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if depoAmount <= 0 {
-		http.Error(w, "deposit amount must be greater than zero", http.StatusBadRequest)
+
+	// Handler-level guard: return 400, not 500, for bad input
+	if req.Amount <= 0 {
+		http.Error(w, "amount must be greater than zero", http.StatusBadRequest)
 		return
 	}
-
+	
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	err = h.store.UpdateAccount(ctx, id, depoAmount)
+
+	err = h.service.Deposit(ctx, id, req.Amount)
 
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -113,19 +119,22 @@ func (h *AccountHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	var withdrawAmount int
-	if err := json.NewDecoder(r.Body).Decode(&withdrawAmount); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+	var req model.AmountRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if withdrawAmount <= 0 {
-		http.Error(w, "withdrawal amount must be greater than zero", http.StatusBadRequest)
+
+	// Handler-level guard: return 400, not 500, for bad input
+	if req.Amount <= 0 {
+		http.Error(w, "amount must be greater than zero", http.StatusBadRequest)
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	err = h.store.UpdateAccount(ctx, id, -withdrawAmount)
+
+	err = h.service.Withdraw(ctx, id, req.Amount)
 
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -148,7 +157,8 @@ func (h *AccountHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	if err := h.store.DeleteAccount(ctx, id); err != nil {
+
+	if err := h.service.DeleteAccount(ctx, id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

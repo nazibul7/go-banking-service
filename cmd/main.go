@@ -5,6 +5,7 @@ import (
 	"banking-app/internal/database"
 	"banking-app/internal/handler"
 	"banking-app/internal/middleware"
+	"banking-app/internal/service"
 	"banking-app/internal/store"
 	"net/http"
 
@@ -24,7 +25,8 @@ func main() {
 	defer db.Close()
 
 	store := store.NewAccountStore(db)
-	handler := handler.NewAccountHandler(store)
+	service:=service.NewAccountService(store)
+	handler := handler.NewAccountHandler(service)
 
 	mux := http.NewServeMux()
 
