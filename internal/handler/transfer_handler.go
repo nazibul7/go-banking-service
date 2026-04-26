@@ -147,6 +147,14 @@ func (h *AccountHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *AccountHandler) Transfer(w http.ResponseWriter, r *http.Request) {
+	var req model.TransferRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+}
+
 func (h *AccountHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 
