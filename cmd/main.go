@@ -4,6 +4,7 @@ import (
 	"banking-app/internal/app"
 	"banking-app/internal/database"
 	"banking-app/internal/handler"
+	"banking-app/internal/middleware"
 	"banking-app/internal/store"
 	"net/http"
 
@@ -26,6 +27,10 @@ func main() {
 	handler := handler.NewAccountHandler(store)
 
 	mux := http.NewServeMux()
+
+	muxHandler := middleware.Logger(mux)
+	muxHandler = middleware.RequestID(muxHandler)
+	muxHandler = middleware.Recoverer(muxHandler)
 
 	mux.HandleFunc("POST /account/create", handler.CreateAccount)
 	mux.HandleFunc("GET /account/{id}", handler.GetAccount)
