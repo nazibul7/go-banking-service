@@ -10,22 +10,6 @@ type AccountStore struct {
 	db *sql.DB
 }
 
-// returning *model.Account instead of model.Account because:
-//
-// 1. nil clearly represents "no result" (e.g. account not found),
-//    whereas a zero-value struct like {ID:0, Balance:0} is ambiguous.
-//
-// 2. avoids copying the struct on every return; important as the struct grows.
-//
-// 3. allows functions to modify the same object (no accidental copies)
-
-type AccountStorer interface {
-	CreateAccount(ctx context.Context, balance int) (*model.Account, error)
-	GetAccount(ctx context.Context, id int) (*model.Account, error)
-	UpdateAccount(ctx context.Context, id int, amount int) error
-	DeleteAccount(ctx context.Context, id int) error
-}
-
 func NewAccountStore(db *sql.DB) *AccountStore {
 	return &AccountStore{db: db}
 }
