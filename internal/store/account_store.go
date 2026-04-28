@@ -6,11 +6,17 @@ import (
 	"database/sql"
 )
 
-type AccountStore struct {
-	db *sql.DB
+// common interface for DB & TX
+type DBTX interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-func NewAccountStore(db *sql.DB) *AccountStore {
+type AccountStore struct {
+	db DBTX
+}
+
+func NewAccountStore(db DBTX) *AccountStore {
 	return &AccountStore{db: db}
 }
 
@@ -45,7 +51,7 @@ func (s *AccountStore) UpdateAccount(ctx context.Context, id int, amount int) er
 	if err != nil {
 		return err
 	}
-	if rows==0{
+	if rows == 0 {
 		return sql.ErrNoRows
 	}
 	return nil
@@ -62,7 +68,7 @@ func (s *AccountStore) DeleteAccount(ctx context.Context, id int) error {
 	if err != nil {
 		return err
 	}
-	if rows==0{
+	if rows == 0 {
 		return sql.ErrNoRows
 	}
 	return nil
