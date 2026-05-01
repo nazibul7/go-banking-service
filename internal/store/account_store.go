@@ -6,17 +6,11 @@ import (
 	"database/sql"
 )
 
-// common interface for DB & TX
-type DBTX interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
 type AccountStore struct {
-	db DBTX
+	db *sql.DB
 }
 
-func NewAccountStore(db DBTX) *AccountStore {
+func NewAccountStore(db *sql.DB) *AccountStore {
 	return &AccountStore{db: db}
 }
 
@@ -55,6 +49,44 @@ func (s *AccountStore) UpdateAccount(ctx context.Context, id int, amount int) er
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (s *AccountStore) TransferTx(ctx context.Context, fromID, toID, amount int) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	query := `UPDATE accounts SET balance = balance + $1 WHERE id=$2`
+
+	// deduct from sender
+	result, err := tx.ExecContext(ctx, query, -amount, fromID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+
+	// credit to receiver
+	result, err = tx.ExecContext(ctx, query, amount, toID)
+	if err != nil {
+		return err
+	}
+	rows, err = result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+
+	return tx.Commit()
 }
 
 func (s *AccountStore) DeleteAccount(ctx context.Context, id int) error {
