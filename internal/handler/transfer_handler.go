@@ -57,7 +57,7 @@ func (h *AccountHandler) GetAccount(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	
+
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
@@ -95,7 +95,7 @@ func (h *AccountHandler) Deposit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "amount must be greater than zero", http.StatusBadRequest)
 		return
 	}
-	
+
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
@@ -153,6 +153,21 @@ func (h *AccountHandler) Transfer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	err := h.service.Transfer(ctx, req)
+
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			http.Error(w, "request timed out", http.StatusGatewayTimeout)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *AccountHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
