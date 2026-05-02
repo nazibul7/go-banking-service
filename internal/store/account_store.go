@@ -35,7 +35,12 @@ func (s *AccountStore) GetAccount(ctx context.Context, id int) (*model.Account, 
 }
 
 func (s *AccountStore) UpdateAccount(ctx context.Context, id int, amount int) error {
-	query := `UPDATE accounts SET balance = balance + $1 WHERE id=$2`
+	var query string
+	if amount < 0 {
+		query = `UPDATE accounts SET balance = balance + $1 WHERE id = $2 AND balance + $1 >=0`
+	} else {
+		query = `UPDATE accounts SET balance = balance + $1 WHERE id = $2`
+	}
 
 	result, err := s.db.ExecContext(ctx, query, amount, id)
 	if err != nil {
