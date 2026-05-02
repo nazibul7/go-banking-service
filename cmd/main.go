@@ -34,11 +34,12 @@ func main() {
 	muxHandler = middleware.RequestID(muxHandler)
 	muxHandler = middleware.Recoverer(muxHandler)
 
-	mux.HandleFunc("POST /account/create", handler.CreateAccount)
+	mux.HandleFunc("POST /account", handler.CreateAccount)
 	mux.HandleFunc("GET /account/{id}", handler.GetAccount)
 	mux.HandleFunc("PATCH /account/{id}/deposit", handler.Deposit)
 	mux.HandleFunc("PATCH /account/{id}/withdraw", handler.Withdraw)
 	mux.HandleFunc("DELETE /account/{id}", handler.DeleteAccount)
+	mux.HandleFunc("POST /account/transfer",handler.Transfer)
 
 	server := app.NewServer(":8080", mux)
 	if err := app.RunWithGracefulShutdown(server, 10*time.Second); err != nil {
