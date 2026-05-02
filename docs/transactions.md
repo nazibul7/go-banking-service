@@ -17,7 +17,14 @@
 
   If any step fails, the entire operation should rollback.
 
-* Simple single-row operations like a basic deposit or withdraw may not always require an explicit transaction if a single SQL statement can guarantee correctness atomically.
+* Why transactions are not always needed for single operations
+"May not always" because it depends on business rules around that operation.
+Same withdraw operation:
+- just update balance        → no transaction needed
+- update + log to history    → transaction needed  
+- update + check daily limit → transaction needed
+
+The operation name does not decide. Your business rules decide.
 
 * In Go, transactions usually follow this pattern:
 
