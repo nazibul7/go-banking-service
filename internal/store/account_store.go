@@ -62,8 +62,8 @@ func (s *AccountStore) TransferTx(ctx context.Context, fromID, toID, amount int)
 		return err
 	}
 	defer tx.Rollback()
-
-	query := `UPDATE accounts SET balance = balance + $1 WHERE id=$2`
+	var query string
+	query = `UPDATE accounts SET balance = balance + $1 WHERE id=$2 AND balance + $1 >=0`
 
 	// deduct from sender
 	result, err := tx.ExecContext(ctx, query, -amount, fromID)
@@ -79,6 +79,8 @@ func (s *AccountStore) TransferTx(ctx context.Context, fromID, toID, amount int)
 	}
 
 	// credit to receiver
+
+	query = `UPDATE accounts SET balance = balance + $1 WHERE id=$2`
 	result, err = tx.ExecContext(ctx, query, amount, toID)
 	if err != nil {
 		return err
