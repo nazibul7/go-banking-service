@@ -1,1 +1,1 @@
-ALTER TABLE accounts;
+DROP TABLE IF EXISTS accounts;
