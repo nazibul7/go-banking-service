@@ -56,59 +56,81 @@ func (s *AccountStore) UpdateAccount(ctx context.Context, id int, amount int) er
 	return nil
 }
 
-func (s *AccountStore) TransferTx(ctx context.Context, fromID, toID, amount int) error {
+func (s *AccountStore) TransferTx(
+	ctx context.Context,
+	fromID,
+	toID,
+	amount int,
+) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-<<<<<<< Updated upstream
-	query := `UPDATE accounts SET balance = balance + $1 WHERE id=$2`
-=======
-	var firstID, secondID int
-	var firstAmount, secondAmount int
+	// deterministic locking order only
+	firstID := fromID
+	secondID := toID
 
-	// consistent lock ordering to prevent deadlock
-	if fromID < toID {
-		firstID, firstAmount = fromID, -amount
-		secondID, secondAmount = toID, amount
-	} else {
-		firstID, firstAmount = toID, amount
-		secondID, secondAmount = fromID, -amount
+	if fromID > toID {
+		firstID = toID
+		secondID = fromID
 	}
-	var query string
-	query = `UPDATE accounts SET balance = balance + $1 WHERE id=$2 AND balance + $1 >=0`
->>>>>>> Stashed changes
 
-	// deduct from sender
-	result, err := tx.ExecContext(ctx, query, firstAmount, firstID)
+	// lock smaller ID first
+	var id int
+	query := `SELECT id FROM accounts WHERE id=$1 FOR UPDATE`
+	err = tx.QueryRowContext(ctx, query, firstID).Scan(&id)
 	if err != nil {
 		return err
 	}
+
+	// lock larger ID second
+	err = tx.QueryRowContext(ctx, query, secondID).Scan(&id)
+	if err != nil {
+		return err
+	}
+
+	// actual business logic starts here
+
+	// deduct from sender
+	query = `
+		UPDATE accounts
+		SET balance = balance - $1
+		WHERE id=$2 AND balance >= $1
+	`
+
+	result, err := tx.ExecContext(ctx, query, amount, fromID)
+	if err != nil {
+		return err
+	}
+
 	rows, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
+
 	if rows == 0 {
 		return sql.ErrNoRows
 	}
 
-	// credit to receiver
-<<<<<<< Updated upstream
-	result, err = tx.ExecContext(ctx, query, amount, toID)
-=======
+	// add to receiver
+	query = `
+		UPDATE accounts
+		SET balance = balance + $1
+		WHERE id=$2
+	`
 
-	query = `UPDATE accounts SET balance = balance + $1 WHERE id=$2`
-	result, err = tx.ExecContext(ctx, query, secondAmount, secondID)
->>>>>>> Stashed changes
+	result, err = tx.ExecContext(ctx, query, amount, toID)
 	if err != nil {
 		return err
 	}
+
 	rows, err = result.RowsAffected()
 	if err != nil {
 		return err
 	}
+
 	if rows == 0 {
 		return sql.ErrNoRows
 	}
