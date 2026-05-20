@@ -24,6 +24,7 @@ Same withdraw operation:
 - update + log to history    → transaction needed  
 - update + check daily limit → transaction needed
 
+One SQL statement = already atomic
 The operation name does not decide. Your business rules decide.
 
 * In Go, transactions usually follow this pattern:
