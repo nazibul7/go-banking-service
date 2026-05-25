@@ -1,0 +1,84 @@
+package store
+
+import (
+	"banking-app/internal/model"
+	"context"
+	"database/sql"
+	"time"
+)
+
+type RefreshTokenStore struct {
+	db *sql.DB
+}
+
+func NewRefreshTokenStore(db *sql.DB) *RefreshTokenStore {
+	return &RefreshTokenStore{db: db}
+}
+
+func (s *RefreshTokenStore) SaveToken(ctx context.Context, userID int, hashToken string, expires time.Time) error {
+	query := `INSERT INTO refresh_tokens(user_id,token_hash, expires_at) VALUES($1, $2, $3)`
+	_, err := s.db.ExecContext(ctx, query, userID, hashToken, expires)
+	return err
+}
+func (s *RefreshTokenStore) DeleteToken(ctx context.Context, tokenHash string) error {
+	query := `DELETE FROM refresh_tokens WHERE token_hash = $1`
+	_, err := s.db.ExecContext(ctx, query, tokenHash)
+	return err
+}
+func (s *RefreshTokenStore) FindToken(
+	ctx context.Context,
+	tokenHash string,
+) (*model.RefreshToken, error) {
+
+	query := `
+	SELECT
+		id,
+		user_id,
+		token_hash,
+		expires_at,
+		revoked,
+		created_at
+	FROM refresh_tokens
+	WHERE token_hash = $1
+	`
+
+	var token model.RefreshToken
+
+	err := s.db.QueryRowContext(
+		ctx,
+		query,
+		tokenHash,
+	).Scan(
+		&token.ID,
+		&token.UserID,
+		&token.TokenHash,
+		&token.ExpiresAt,
+		&token.Revoked,
+		&token.CreatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &token, nil
+}
+func (s *RefreshTokenStore) RevokeToken(
+	ctx context.Context,
+	tokenHash string,
+) error {
+
+	query := `
+	UPDATE refresh_tokens
+	SET revoked = TRUE
+	WHERE token_hash = $1
+	`
+
+	_, err := s.db.ExecContext(
+		ctx,
+		query,
+		tokenHash,
+	)
+
+	return err
+}
