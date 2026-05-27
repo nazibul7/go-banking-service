@@ -44,6 +44,7 @@ const (
 
 type Claims struct {
 	UserID    int       `json:"user_id"`
+	Email     string    `json:"email"`
 	Role      Role      `json:"role"`
 	TokenType TokenType `json:"token_type"`
 	jwt.RegisteredClaims
