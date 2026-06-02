@@ -26,9 +26,11 @@ type RefreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-type RefreshToken struct {
+type RefreshTokenUser struct {
 	ID        int
 	UserID    int
+	Role      Role
+	Email     string
 	TokenHash string
 	ExpiresAt time.Time
 	Revoked   bool

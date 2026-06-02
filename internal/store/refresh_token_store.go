@@ -28,21 +28,25 @@ func (s *RefreshTokenStore) DeleteToken(ctx context.Context, tokenHash string) e
 func (s *RefreshTokenStore) FindToken(
 	ctx context.Context,
 	tokenHash string,
-) (*model.RefreshToken, error) {
+) (*model.RefreshTokenUser, error) {
 
 	query := `
 	SELECT
-		id,
-		user_id,
-		token_hash,
-		expires_at,
-		revoked,
-		created_at
-	FROM refresh_tokens
-	WHERE token_hash = $1
+		rt.id,
+		rt.user_id,
+		rt.token_hash,
+		rt.expires_at,
+		rt.revoked,
+		rt.created_at,
+		u.email,
+		u.role
+	FROM refresh_tokens rt
+	JOIN users u
+	ON rt.user_id=u.id
+	WHERE rt.token_hash = $1
 	`
 
-	var token model.RefreshToken
+	var token model.RefreshTokenUser
 
 	err := s.db.QueryRowContext(
 		ctx,
@@ -55,6 +59,8 @@ func (s *RefreshTokenStore) FindToken(
 		&token.ExpiresAt,
 		&token.Revoked,
 		&token.CreatedAt,
+		&token.Email,
+		&token.Role,
 	)
 
 	if err != nil {

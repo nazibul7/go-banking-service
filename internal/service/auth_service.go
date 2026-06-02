@@ -13,12 +13,14 @@ import (
 type AuthService struct {
 	authStore         *store.AuthStore
 	refreshTokenStore *store.RefreshTokenStore
+	txStore           *store.TxStore
 }
 
-func NewAuthService(authStore *store.AuthStore, refreshTokenStore *store.RefreshTokenStore) *AuthService {
+func NewAuthService(authStore *store.AuthStore, refreshTokenStore *store.RefreshTokenStore, txStore *store.TxStore) *AuthService {
 	return &AuthService{
 		authStore:         authStore,
 		refreshTokenStore: refreshTokenStore,
+		txStore:           txStore,
 	}
 }
 
@@ -40,22 +42,17 @@ func (s *AuthService) Signup(ctx context.Context, req model.SignupRequest) (*mod
 		return nil, err
 	}
 
-	user, err := s.authStore.CreateUser(ctx, req.Email, hashPassword)
-	if err != nil {
-		return nil, err
-	}
-
-	accessToken, err := utils.GenerateAccessToken(user.ID, user.Email, user.Role, "")
-	if err != nil {
-		return nil, err
-	}
-
-	refreshToken, expiresAt, err := utils.GenerateRefreshToken(user.ID, user.Email, model.RoleUser, "")
+	refreshToken, expiresAt, err := utils.GenerateRefreshToken()
 	if err != nil {
 		return nil, err
 	}
 	hashRefreshToken := utils.HashToken(refreshToken)
-	err = s.refreshTokenStore.SaveToken(ctx, user.ID, hashRefreshToken, expiresAt)
+	user, err := s.txStore.RegisterTx(ctx, req.Email, hashPassword, hashRefreshToken, expiresAt)
+	if err != nil {
+		return nil, err
+	}
+
+	accessToken, err := utils.GenerateAccessToken(user.ID, user.Email, user.Role, 15*time.Minute, "")
 	if err != nil {
 		return nil, err
 	}
@@ -82,12 +79,12 @@ func (s *AuthService) Signin(ctx context.Context, req model.SigninRequest) (*mod
 		return nil, err
 	}
 
-	accessToken, err := utils.GenerateAccessToken(existingUser.ID, existingUser.Email, existingUser.Role, "")
+	accessToken, err := utils.GenerateAccessToken(existingUser.ID, existingUser.Email, existingUser.Role, 15*time.Minute, "")
 	if err != nil {
 		return nil, err
 	}
 
-	refreshToken, expiresAt, err := utils.GenerateRefreshToken(existingUser.ID, existingUser.Email, model.RoleUser, "")
+	refreshToken, expiresAt, err := utils.GenerateRefreshToken()
 	if err != nil {
 		return nil, err
 	}
@@ -106,11 +103,6 @@ func (s *AuthService) Signin(ctx context.Context, req model.SigninRequest) (*mod
 }
 
 func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*model.AuthResponse, error) {
-	claims, err := utils.VerifyToken(refreshToken, "", model.TokenTypeRefresh)
-	if err != nil {
-		return nil, errors.New("invalid refresh token")
-	}
-
 	tokenHash := utils.HashToken(refreshToken)
 	token, err := s.refreshTokenStore.FindToken(ctx, tokenHash)
 
@@ -129,27 +121,22 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*model.
 		return nil, errors.New("refresh token has expired")
 	}
 
-	err = s.refreshTokenStore.RevokeToken(ctx, tokenHash)
+	accessToken, err := utils.GenerateAccessToken(token.UserID, token.Email, token.Role, 15*time.Minute, "")
 	if err != nil {
 		return nil, err
 	}
 
-	accessToken, err := utils.GenerateAccessToken(claims.UserID, claims.Email, claims.Role, "")
-	if err != nil {
-		return nil, err
-	}
-
-	newRefreshToken, expiresAt, err := utils.GenerateRefreshToken(claims.UserID, claims.Email, claims.Role, "")
+	newRefreshToken, expiresAt, err := utils.GenerateRefreshToken()
 	if err != nil {
 		return nil, err
 	}
 	hashRefreshToken := utils.HashToken(newRefreshToken)
-	err = s.refreshTokenStore.SaveToken(ctx, claims.UserID, hashRefreshToken, expiresAt)
+	err = s.txStore.RotateTokenTx(ctx, token.UserID, tokenHash, hashRefreshToken, expiresAt)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := s.authStore.GetUserByEmail(ctx, claims.Email)
+	user, err := s.authStore.GetUserByEmail(ctx, token.Email)
 	if err != nil {
 		return nil, err
 	}
