@@ -19,7 +19,7 @@ import (
 // 3. allows functions to modify the same object (no accidental copies)
 
 type AccountStorer interface {
-	CreateAccount(ctx context.Context, balance int) (*model.Account, error)
+	CreateAccount(ctx context.Context, balance int, userID int) (*model.Account, error)
 	GetAccount(ctx context.Context, id int) (*model.Account, error)
 	UpdateAccount(ctx context.Context, id int, amount int) error
 	DeleteAccount(ctx context.Context, id int) error
@@ -36,18 +36,38 @@ func NewAccountService(store AccountStorer) *AccountService {
 	}
 }
 
-func (s *AccountService) CreateAccount(ctx context.Context, balance int) (*model.Account, error) {
+func (s *AccountService) CreateAccount(ctx context.Context, balance, userID int) (*model.Account, error) {
 	if balance < 0 {
 		return nil, errors.New("initial balance can not be negative")
 	}
-	return s.store.CreateAccount(ctx, balance)
+	return s.store.CreateAccount(ctx, balance, userID)
 }
 
-func (s *AccountService) GetAccount(ctx context.Context, id int) (*model.Account, error) {
-	if id <= 0 {
+func (s *AccountService) GetAccount(ctx context.Context, accountID, userID int) (*model.Account, error) {
+	if accountID <= 0 {
 		return nil, errors.New("invalid account id")
 	}
-	return s.store.GetAccount(ctx, id)
+
+	/**
+	service layer should NOT know:
+	HTTP,middleware, JWT, request context internals
+	Service should only know business data:userID,accountID
+
+	That's why didn't used claims from context value
+
+	claims := ctx.Value(middleware.ClaimsKey).(*model.Claims)
+	*/
+
+	account, err := s.store.GetAccount(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	if userID != account.UserID {
+		return nil, errors.New("unauthorized")
+	}
+
+	return account, nil
 }
 
 func (s *AccountService) Deposit(ctx context.Context, id, amount int) error {
@@ -72,7 +92,7 @@ func (s *AccountService) Withdraw(ctx context.Context, id, amount int) error {
 	return s.store.UpdateAccount(ctx, id, -amount)
 }
 
-func (s *AccountService) Transfer(ctx context.Context, req model.TransferRequest) error {
+func (s *AccountService) Transfer(ctx context.Context, req model.TransferRequest, userID int) error {
 	if req.Amount <= 0 {
 		return errors.New("transfer amount must be greater than zero")
 	}
@@ -86,6 +106,10 @@ func (s *AccountService) Transfer(ctx context.Context, req model.TransferRequest
 	sender, err := s.store.GetAccount(ctx, req.FromID)
 	if err != nil {
 		return fmt.Errorf("sender: %w", err)
+	}
+
+	if sender.UserID != userID {
+		return fmt.Errorf("forbidden to send")
 	}
 	if _, err := s.store.GetAccount(ctx, req.ToID); err != nil {
 		return fmt.Errorf("receiver: %w", err)
