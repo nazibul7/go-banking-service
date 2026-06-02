@@ -160,3 +160,31 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*model.
 		RefreshToken: newRefreshToken,
 	}, nil
 }
+
+func (s *AuthService) Logout(ctx context.Context, refreshToken string, userID int) error {
+	tokenHash := utils.HashToken(refreshToken)
+	token, err := s.refreshTokenStore.FindToken(ctx, tokenHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errors.New("invalid refresh token")
+	}
+	if err != nil {
+		return err
+	}
+
+	if token.UserID != userID {
+		return errors.New("forbidden")
+	}
+
+	if token.Revoked {
+		return errors.New("refresh token has been revoked")
+	}
+
+	if time.Now().After(token.ExpiresAt) {
+		return errors.New("refresh token has expired")
+	}
+
+	if err = s.refreshTokenStore.RevokeToken(ctx, tokenHash); err != nil {
+		return err
+	}
+	return nil
+}

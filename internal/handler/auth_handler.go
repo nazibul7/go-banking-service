@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"banking-app/internal/middleware"
 	"banking-app/internal/model"
 	"banking-app/internal/service"
 	"context"
@@ -100,4 +101,28 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(resp)
+}
+
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	var req model.RefreshTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if req.RefreshToken == "" {
+		http.Error(w, "refresh token required", http.StatusBadRequest)
+		return
+	}
+
+	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	
+	err := h.service.Logout(ctx, req.RefreshToken, claims.UserID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 }
