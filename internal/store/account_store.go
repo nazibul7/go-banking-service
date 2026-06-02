@@ -14,20 +14,20 @@ func NewAccountStore(db *sql.DB) *AccountStore {
 	return &AccountStore{db: db}
 }
 
-func (s *AccountStore) CreateAccount(ctx context.Context, balance int) (*model.Account, error) {
-	query := `INSERT INTO accounts (balance) VALUES ($1) RETURNING id`
+func (s *AccountStore) CreateAccount(ctx context.Context, balance, userID int) (*model.Account, error) {
+	query := `INSERT INTO accounts (balance, user_id) VALUES ($1,$2) RETURNING id`
 	var id int
-	err := s.db.QueryRowContext(ctx, query, balance).Scan(&id)
+	err := s.db.QueryRowContext(ctx, query, balance, userID).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
-	return &model.Account{ID: id, Balance: balance}, nil
+	return &model.Account{ID: id, UserID: userID, Balance: balance}, nil
 }
 
 func (s *AccountStore) GetAccount(ctx context.Context, id int) (*model.Account, error) {
-	query := `SELECT * FROM accounts WHERE id=$1`
+	query := `SELECT id, user_id, balance FROM accounts WHERE id=$1`
 	var acc model.Account
-	err := s.db.QueryRowContext(ctx, query, id).Scan(&acc.ID, &acc.Balance)
+	err := s.db.QueryRowContext(ctx, query, id).Scan(&acc.ID, &acc.UserID, &acc.Balance)
 	if err != nil {
 		return nil, err
 	}
