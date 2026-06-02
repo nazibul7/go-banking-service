@@ -18,8 +18,9 @@ func Auth(next http.Handler) http.Handler {
 			return
 		}
 
-		parts := strings.Split(authHeader, "")
-		if len(parts) != 2 && parts[0] != "Bearer" {
+		parts := strings.Split(authHeader, " ")
+
+		if len(parts) != 2 || parts[0] != "Bearer" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -32,7 +33,6 @@ func Auth(next http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), ClaimsKey, claims)
-
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
