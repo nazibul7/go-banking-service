@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	connStr := `postgres://myuser:mypassword@localhost:5432/mydb?sslmode=disable`
+	connStr := `postgres://myuser:mypassword@localhost:5433/mydb?sslmode=disable`
 	database.RunMigrations(connStr)
 
 	db, err := database.NewPostgresDB(connStr)
@@ -24,9 +24,15 @@ func main() {
 	// Ensure the connection is closed when main exits
 	defer db.Close()
 
-	store := store.NewAccountStore(db)
-	service:=service.NewAccountService(store)
-	handler := handler.NewAccountHandler(service)
+	accStore := store.NewAccountStore(db)
+	accService := service.NewAccountService(accStore)
+	accHandler := handler.NewAccountHandler(accService)
+
+	authStores := store.NewAuthStore(db)
+	refreshStore := store.NewRefreshTokenStore(db)
+	tsStore := store.NewTxStore(db)
+	authService := service.NewAuthService(authStores, refreshStore, tsStore)
+	authHandler := handler.NewAuthHandler(authService)
 
 	mux := http.NewServeMux()
 
@@ -34,14 +40,19 @@ func main() {
 	muxHandler = middleware.RequestID(muxHandler)
 	muxHandler = middleware.Recoverer(muxHandler)
 
-	mux.HandleFunc("POST /account", handler.CreateAccount)
-	mux.HandleFunc("GET /account/{id}", handler.GetAccount)
-	mux.HandleFunc("PATCH /account/{id}/deposit", handler.Deposit)
-	mux.HandleFunc("PATCH /account/{id}/withdraw", handler.Withdraw)
-	mux.HandleFunc("DELETE /account/{id}", handler.DeleteAccount)
-	mux.HandleFunc("POST /account/transfer",handler.Transfer)
+	mux.HandleFunc("POST /signup", authHandler.Signup)
+	mux.HandleFunc("POST /signin", authHandler.Signin)
+	mux.HandleFunc("POST /refresh", authHandler.Refresh)
+	mux.Handle("POST /logout", middleware.Auth(http.HandlerFunc(authHandler.Logout)))
 
-	server := app.NewServer(":8080", mux)
+	mux.Handle("POST /account", middleware.Auth(http.HandlerFunc(accHandler.CreateAccount)))
+	mux.Handle("GET /account/{id}", middleware.Auth(http.HandlerFunc(accHandler.GetAccount)))
+	mux.Handle("PATCH /account/{id}/deposit", middleware.Auth(http.HandlerFunc(accHandler.Deposit)))
+	mux.Handle("PATCH /account/{id}/withdraw", middleware.Auth(http.HandlerFunc(accHandler.Withdraw)))
+	mux.Handle("DELETE /account/{id}", middleware.Auth(http.HandlerFunc(accHandler.DeleteAccount)))
+	mux.Handle("POST /account/transfer", middleware.Auth(http.HandlerFunc(accHandler.Transfer)))
+
+	server := app.NewServer(":8080", muxHandler)
 	if err := app.RunWithGracefulShutdown(server, 10*time.Second); err != nil {
 		log.Fatalf("Server error %v\n", err)
 	}
