@@ -2,6 +2,7 @@ package utils
 
 import (
 	"banking-app/internal/model"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -10,22 +11,13 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func GenerateAccessToken(userID int, email string, role model.Role, secret string) (string, error) {
-	token, _, err := generateToken(userID, email, role, model.TokenTypeAccess, 15*time.Minute, secret)
-	return token, err
-}
-
-func GenerateRefreshToken(userID int, email string, role model.Role, secret string) (string, time.Time, error) {
-	return generateToken(userID, email, role, model.TokenTypeRefresh, 7*24*time.Hour, secret)
-}
-
-func generateToken(userID int, email string, role model.Role, tokenType model.TokenType, duration time.Duration, secret string) (string, time.Time, error) {
-	expiresAt := time.Now().Add(duration)
+func GenerateAccessToken(userID int, email string, role model.Role, expires_at time.Duration, secret string) (string, error) {
+	expiresAt := time.Now().Add(expires_at)
 	claim := model.Claims{
 		UserID:    userID,
 		Email:     email,
 		Role:      role,
-		TokenType: tokenType,
+		TokenType: model.TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -33,10 +25,17 @@ func generateToken(userID int, email string, role model.Role, tokenType model.To
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claim)
 	signed, err := token.SignedString([]byte(secret))
-	if err != nil {
+	return signed, err
+}
+
+func GenerateRefreshToken() (string, time.Time, error) {
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
 		return "", time.Time{}, err
 	}
-	return signed, expiresAt, nil
+	token := hex.EncodeToString(tokenBytes)
+	expiresAt := time.Now().Add(7 * 24 * time.Hour)
+	return token, expiresAt, nil
 }
 
 func VerifyToken(
