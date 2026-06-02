@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"banking-app/internal/middleware"
 	"banking-app/internal/model"
 	"banking-app/internal/service"
 	"context"
@@ -19,6 +20,8 @@ func NewAccountHandler(service *service.AccountService) *AccountHandler {
 }
 
 func (h *AccountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {
+	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+
 	var req model.CreateAccountRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -33,7 +36,7 @@ func (h *AccountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	account, err := h.service.CreateAccount(ctx, req.Balance)
+	account, err := h.service.CreateAccount(ctx, req.Balance, claims.UserID)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			http.Error(w, "request timed out", http.StatusGatewayTimeout)
@@ -51,17 +54,19 @@ func (h *AccountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AccountHandler) GetAccount(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r)
+	accountID, err := parseID(r)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	account, err := h.service.GetAccount(ctx, id)
+	account, err := h.service.GetAccount(ctx, accountID, claims.UserID)
 
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -157,7 +162,8 @@ func (h *AccountHandler) Transfer(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	err := h.service.Transfer(ctx, req)
+	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+	err := h.service.Transfer(ctx, req, claims.UserID)
 
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
