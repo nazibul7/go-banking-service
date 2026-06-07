@@ -25,7 +25,8 @@ func main() {
 	defer db.Close()
 
 	accStore := store.NewAccountStore(db)
-	accService := service.NewAccountService(accStore)
+	idempotencyStore := store.NewIdempotencyStore(db)
+	accService := service.NewAccountService(accStore, idempotencyStore)
 	accHandler := handler.NewAccountHandler(accService)
 
 	authStores := store.NewAuthStore(db)
@@ -45,12 +46,12 @@ func main() {
 	mux.HandleFunc("POST /refresh", authHandler.Refresh)
 	mux.Handle("POST /logout", middleware.Auth(http.HandlerFunc(authHandler.Logout)))
 
-	mux.Handle("POST /account", middleware.Auth(http.HandlerFunc(accHandler.CreateAccount)))
+	mux.Handle("POST /account", middleware.Auth(middleware.Idempotency(http.HandlerFunc(accHandler.CreateAccount))))
 	mux.Handle("GET /account/{id}", middleware.Auth(http.HandlerFunc(accHandler.GetAccount)))
-	mux.Handle("PATCH /account/{id}/deposit", middleware.Auth(http.HandlerFunc(accHandler.Deposit)))
-	mux.Handle("PATCH /account/{id}/withdraw", middleware.Auth(http.HandlerFunc(accHandler.Withdraw)))
+	mux.Handle("PATCH /account/{id}/deposit", middleware.Auth(middleware.Idempotency(http.HandlerFunc(accHandler.Deposit))))
+	mux.Handle("PATCH /account/{id}/withdraw", middleware.Auth(middleware.Idempotency(http.HandlerFunc(accHandler.Withdraw))))
 	mux.Handle("DELETE /account/{id}", middleware.Auth(http.HandlerFunc(accHandler.DeleteAccount)))
-	mux.Handle("POST /account/transfer", middleware.Auth(http.HandlerFunc(accHandler.Transfer)))
+	mux.Handle("POST /account/transfer", middleware.Auth(middleware.Idempotency(http.HandlerFunc(accHandler.Transfer))))
 
 	server := app.NewServer(":8080", muxHandler)
 	if err := app.RunWithGracefulShutdown(server, 10*time.Second); err != nil {
