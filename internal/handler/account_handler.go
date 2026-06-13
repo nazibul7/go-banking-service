@@ -28,8 +28,8 @@ func (h *AccountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Balance < 0 {
-		http.Error(w, "balance can not be negative", http.StatusBadRequest)
+	if req.Balance <= 0 {
+		http.Error(w, "balance can not be negative or zero", http.StatusBadRequest)
 		return
 	}
 
@@ -53,7 +53,29 @@ func (h *AccountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *AccountHandler) GetAccount(w http.ResponseWriter, r *http.Request) {
+func (h *AccountHandler) GetAccounts(w http.ResponseWriter, r *http.Request) {
+	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	accounts, err := h.service.GetAccounts(ctx, claims.UserID)
+
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			http.Error(w, "request timed out", http.StatusGatewayTimeout)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(accounts)
+}
+
+func (h *AccountHandler) GetAccountByID(w http.ResponseWriter, r *http.Request) {
 	accountID, err := parseID(r)
 
 	if err != nil {
@@ -66,7 +88,7 @@ func (h *AccountHandler) GetAccount(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	account, err := h.service.GetAccount(ctx, accountID, claims.UserID)
+	account, err := h.service.GetAccountByID(ctx, accountID, claims.UserID)
 
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -83,7 +105,7 @@ func (h *AccountHandler) GetAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AccountHandler) Deposit(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r)
+	accountID, err := parseID(r)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -104,7 +126,9 @@ func (h *AccountHandler) Deposit(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	err = h.service.Deposit(ctx, id, req.Amount)
+	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+
+	err = h.service.Deposit(ctx, accountID, claims.UserID, req.Amount)
 
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -118,7 +142,7 @@ func (h *AccountHandler) Deposit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AccountHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r)
+	accountID, err := parseID(r)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -139,7 +163,9 @@ func (h *AccountHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	err = h.service.Withdraw(ctx, id, req.Amount)
+	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+
+	err = h.service.Withdraw(ctx, accountID, claims.UserID, req.Amount)
 
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -177,7 +203,7 @@ func (h *AccountHandler) Transfer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AccountHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
-	id, err := parseID(r)
+	accountID, err := parseID(r)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -186,8 +212,9 @@ func (h *AccountHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
+	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
 
-	if err := h.service.DeleteAccount(ctx, id); err != nil {
+	if err := h.service.DeleteAccount(ctx, accountID, claims.UserID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
