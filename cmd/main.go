@@ -47,7 +47,8 @@ func main() {
 	mux.Handle("POST /logout", middleware.Auth(http.HandlerFunc(authHandler.Logout)))
 
 	mux.Handle("POST /account", middleware.Auth(middleware.Idempotency(http.HandlerFunc(accHandler.CreateAccount))))
-	mux.Handle("GET /account/{id}", middleware.Auth(http.HandlerFunc(accHandler.GetAccount)))
+	mux.Handle("GET /accounts", middleware.Auth(http.HandlerFunc(accHandler.GetAccounts)))
+	mux.Handle("GET /account/{id}", middleware.Auth(http.HandlerFunc(accHandler.GetAccountByID)))
 	mux.Handle("PATCH /account/{id}/deposit", middleware.Auth(middleware.Idempotency(http.HandlerFunc(accHandler.Deposit))))
 	mux.Handle("PATCH /account/{id}/withdraw", middleware.Auth(middleware.Idempotency(http.HandlerFunc(accHandler.Withdraw))))
 	mux.Handle("DELETE /account/{id}", middleware.Auth(http.HandlerFunc(accHandler.DeleteAccount)))

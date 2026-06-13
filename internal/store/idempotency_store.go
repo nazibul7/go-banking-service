@@ -17,11 +17,7 @@ func NewIdempotencyStore(db *sql.DB) *IdempotencyStore {
 	}
 }
 
-<<<<<<< HEAD
-func (s *IdempotencyStor) GetIdempotency(ctx context.Context, idempotencyKey string) (*model.Idempotency, error) {
-=======
 func (s *IdempotencyStore) GetIdempotency(ctx context.Context, idempotencyKey string) (*model.Idempotency, error) {
->>>>>>> 8a529d3 (add getaccounts in store, service, handler so that client could know his accounts)
 	query := `SELECT * FROM idempotency_keys WHERE idempotency_key = $1`
 	var idempotency model.Idempotency
 	err := s.db.QueryRowContext(ctx, query, idempotencyKey).Scan(&idempotency.UserID, &idempotency.IdempotencyKey, &idempotency.Response)
@@ -31,17 +27,10 @@ func (s *IdempotencyStore) GetIdempotency(ctx context.Context, idempotencyKey st
 	return &idempotency, nil
 }
 
-<<<<<<< HEAD
-func (s *IdempotencyStor) InsertIdempotency(ctx context.Context, userID int, idempotencyKey string, response json.RawMessage) error {
-	query := `INSERT INTO idempotency_keys(idempotency_key,user_id,response) VALUES ($1,$2,$3)`
-
-	_, err := s.db.ExecContext(ctx, query, userID, response, idempotencyKey)
-=======
 func (s *IdempotencyStore) InsertIdempotency(ctx context.Context, userID int, idempotencyKey string, response json.RawMessage) error {
 	query := `INSERT INTO idempotency_keys(idempotency_key,user_id,response) VALUES ($1,$2,$3)`
 
-	_, err := s.db.ExecContext(ctx, query, idempotencyKey, userID, response)
->>>>>>> 8a529d3 (add getaccounts in store, service, handler so that client could know his accounts)
+	_, err := s.db.ExecContext(ctx, query, userID, response, idempotencyKey)
 	if err != nil {
 		return err
 	}
