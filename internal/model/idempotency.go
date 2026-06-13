@@ -1,9 +1,15 @@
 package model
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Idempotency struct {
-	UserID         int
-	IdempotencyKey string
-	Response       json.RawMessage
+	ID             int             `json:"id"`
+	UserID         int             `json:"user_id"`
+	IdempotencyKey string          `json:"idempotency_key"`
+	Response       json.RawMessage `json:"response_body"`
+	StatusCode     int             `json:"status_code"`
+	CreatedAt      time.Time       `json:"created_at"`
 }
