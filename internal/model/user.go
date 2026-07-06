@@ -2,13 +2,6 @@ package model
 
 import "time"
 
-type Role string
-
-const (
-	RoleUser  Role = "user"
-	RoleAdmin Role = "admin"
-)
-
 type User struct {
 	ID           int       `json:"id"`
 	Email        string    `json:"email"`
