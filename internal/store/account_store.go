@@ -4,6 +4,7 @@ import (
 	"banking-app/internal/model"
 	"context"
 	"database/sql"
+	"errors"
 )
 
 type AccountStore struct {
@@ -77,26 +78,26 @@ func (s *AccountStore) GetAccountByID(ctx context.Context, accountID int) (*mode
 	return &account, nil
 }
 
-func (s *AccountStore) UpdateAccount(ctx context.Context, accountID, userID int, amount int) error {
+func (s *AccountStore) UpdateAccount(ctx context.Context, accountID, userID int, amount int) (*model.Account, error) {
 	var query string
 	if amount < 0 {
-		query = `UPDATE accounts SET balance = balance + $1 WHERE id = $2 AND user_id = $3 AND balance + $1 >=0`
+		query = `UPDATE accounts SET balance = balance + $1 WHERE id = $2 AND user_id = $3 AND balance + $1 >=0
+					RETURNING id, user_id, balance`
 	} else {
-		query = `UPDATE accounts SET balance = balance + $1 WHERE id = $2 AND user_id = $3`
+		query = `UPDATE accounts SET balance = balance + $1 WHERE id = $2 AND user_id = $3 RETURNING id, user_id, balance`
 	}
 
-	result, err := s.db.ExecContext(ctx, query, amount, accountID, userID)
+	var account model.Account
+
+	err := s.db.QueryRowContext(ctx, query, amount, accountID, userID).Scan(&account.AccountID, &account.UserID, &account.Balance)
 	if err != nil {
-		return err
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, sql.ErrNoRows
+		}
+		return nil, err
 	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+
+	return &account, nil
 }
 
 func (s *AccountStore) TransferTx(ctx context.Context, fromID, toID, amount int) error {
