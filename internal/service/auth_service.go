@@ -1,7 +1,7 @@
 package service
 
 import (
-	"banking-app/internal/model"
+	"banking-app/internal/dto"
 	"banking-app/internal/store"
 	"banking-app/internal/utils"
 	"context"
@@ -24,7 +24,7 @@ func NewAuthService(authStore *store.AuthStore, refreshTokenStore *store.Refresh
 	}
 }
 
-func (s *AuthService) Signup(ctx context.Context, req model.SignupRequest) (*model.AuthResponse, error) {
+func (s *AuthService) Signup(ctx context.Context, req dto.SignupRequest) (*dto.AuthResponse, error) {
 	if req.Email == "" || req.Password == "" {
 		return nil, errors.New("invalid request")
 	}
@@ -57,15 +57,20 @@ func (s *AuthService) Signup(ctx context.Context, req model.SignupRequest) (*mod
 		return nil, err
 	}
 
-	authResponse := &model.AuthResponse{
-		User:         *user,
+	authResponse := &dto.AuthResponse{
+		User: dto.UserResponse{
+			ID:    user.ID,
+			Email: user.Email,
+			Role:  user.Role,
+		},
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
+		Message: "User created successfully",
 	}
 	return authResponse, nil
 }
 
-func (s *AuthService) Signin(ctx context.Context, req model.SigninRequest) (*model.AuthResponse, error) {
+func (s *AuthService) Signin(ctx context.Context, req dto.SigninRequest) (*dto.AuthResponse, error) {
 	if req.Email == "" || req.Password == "" {
 		return nil, errors.New("invalid request")
 	}
@@ -94,15 +99,20 @@ func (s *AuthService) Signin(ctx context.Context, req model.SigninRequest) (*mod
 		return nil, err
 	}
 
-	authResponse := &model.AuthResponse{
-		User:         *existingUser,
+	authResponse := &dto.AuthResponse{
+		User: dto.UserResponse{
+			ID:    existingUser.ID,
+			Email: existingUser.Email,
+			Role:  existingUser.Role,
+		},
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
+		Message: "Signed in successfully",
 	}
 	return authResponse, nil
 }
 
-func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*model.AuthResponse, error) {
+func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*dto.AuthResponse, error) {
 	tokenHash := utils.HashToken(refreshToken)
 	token, err := s.refreshTokenStore.FindToken(ctx, tokenHash)
 
@@ -141,10 +151,15 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*model.
 		return nil, err
 	}
 
-	return &model.AuthResponse{
-		User:         *user,
+	return &dto.AuthResponse{
+		User: dto.UserResponse{
+			ID:    user.ID,
+			Email: user.Email,
+			Role:  user.Role,
+		},
 		AccessToken:  accessToken,
 		RefreshToken: newRefreshToken,
+		Message: "Token refreshed successfully",
 	}, nil
 }
 
