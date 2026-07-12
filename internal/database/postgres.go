@@ -8,11 +8,13 @@ import (
 
 func NewPostgresDB(dbURL string) (*sql.DB, error) {
 	// Open a database handle (doesn't immediately establish a connection)
+	// create a empty connection pool manager
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, err
 	}
 
+	// Configuring a connection pool
 	db.SetMaxOpenConns(20)
 	db.SetMaxIdleConns(20)
 	db.SetConnMaxLifetime(5 * time.Minute)
