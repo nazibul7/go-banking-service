@@ -1,13 +1,16 @@
 package service
 
 import (
+	"banking-app/internal/dto"
 	"banking-app/internal/middleware"
 	"banking-app/internal/model"
 	"context"
-	// "database/sql"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"time"
 )
 
 // The interface should be defined where it's used, not where it's implemented — this is the standard Go idiom
@@ -25,14 +28,14 @@ type AccountStorer interface {
 	CreateAccount(ctx context.Context, balance, userID int) (*model.Account, error)
 	GetAccounts(ctx context.Context, userID int) ([]model.Account, error)
 	GetAccountByID(ctx context.Context, accountID int) (*model.Account, error)
-	UpdateAccount(ctx context.Context, accountID, userID, amount int) error
+	UpdateAccount(ctx context.Context, accountID, userID, amount int) (*model.Account, error)
 	DeleteAccount(ctx context.Context, accountID, userID int) error
 	TransferTx(ctx context.Context, fromID, toID, amount int) error
 }
 
 type IdempotencyStorer interface {
-	GetIdempotency(ctx context.Context, idempotencyKey string) (*model.Idempotency, error)
-	InsertIdempotency(ctx context.Context, userID int, idempotencyKey string, response json.RawMessage) error
+	GetIdempotency(ctx context.Context, userID int, idempotencyKey string) (*model.Idempotency, error)
+	InsertIdempotency(ctx context.Context, userID int, idempotencyKey string, statusCode int, response json.RawMessage, expiresAt time.Time) error
 }
 
 type AccountService struct {
@@ -47,7 +50,7 @@ func NewAccountService(accStore AccountStorer, idempotencyStore IdempotencyStore
 	}
 }
 
-func (s *AccountService) CreateAccount(ctx context.Context, balance, userID int) (*model.Account, error) {
+func (s *AccountService) CreateAccount(ctx context.Context, balance, userID int) (*dto.CreateAccountResponse, error) {
 	if balance <= 0 {
 		return nil, errors.New("initial balance can not be negative or zero")
 	}
@@ -57,13 +60,13 @@ func (s *AccountService) CreateAccount(ctx context.Context, balance, userID int)
 		return nil, errors.New("missing idempotency key")
 	}
 
-	existing, err := s.idempotencyStore.GetIdempotency(ctx, idempotencyKey)
+	existing, err := s.idempotencyStore.GetIdempotency(ctx, userID, idempotencyKey)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 
 	if existing != nil {
-		var account model.Account
+		var account dto.CreateAccountResponse
 		if err := json.Unmarshal(existing.Response, &account); err != nil {
 			return nil, err
 		}
@@ -71,72 +74,56 @@ func (s *AccountService) CreateAccount(ctx context.Context, balance, userID int)
 	}
 
 	account, err := s.accStore.CreateAccount(ctx, balance, userID)
-	accountByte, err := json.Marshal(account)
 	if err != nil {
 		return nil, err
 	}
 
-	s.idempotencyStore.InsertIdempotency(ctx, account.UserID, idempotencyKey, accountByte)
-	return account, err
+	var response *dto.CreateAccountResponse
+
+	response = &dto.CreateAccountResponse{
+		AccountID: account.AccountID,
+		Balance:   account.Balance,
+		Message:   "Account created successfully",
+	}
+
+	responseByte, err := json.Marshal(response)
+	if err != nil {
+		return nil, err
+	}
+
+	expiresAt := time.Now().UTC().Add(24 * time.Hour)
+
+	if err := s.idempotencyStore.InsertIdempotency(ctx, account.UserID, idempotencyKey, http.StatusCreated, responseByte, expiresAt); err != nil {
+		return nil, err
+	}
+
+	return response, nil
 }
 
-func (s *AccountService) GetAccounts(ctx context.Context, userID int) ([]model.Account, error) {
+func (s *AccountService) GetAccounts(ctx context.Context, userID int) ([]dto.AccountResponse, error) {
 	accounts, err := s.accStore.GetAccounts(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	if userID != accounts[0].UserID {
-		return nil, errors.New("unauthorized")
-	}
+	responses := make([]dto.AccountResponse, 0, len(accounts))
 
-	return accounts, nil
+	for _, acc := range accounts {
+		responses = append(responses, dto.AccountResponse{
+			AccountID: acc.AccountID,
+			Balance:   acc.Balance,
+		})
+	}
+	return responses, nil
 }
 
-func (s *AccountService) Deposit(ctx context.Context, accountID, userID, amount int) error {
+func (s *AccountService) Deposit(ctx context.Context, accountID, userID, amount int) (*dto.BalanceResponse, error) {
 	if accountID <= 0 {
-		return errors.New("invalid account id")
+		return nil, errors.New("invalid account id")
 	}
 
 	if amount <= 0 {
-		return errors.New("deposit amount must be greater than zero")
-	}
-
-	idempotencyKey, ok := ctx.Value(middleware.IdempotencyKey).(string)
-	if !ok || idempotencyKey == "" {
-		return errors.New("missing idempotency key")
-	}
-
-	existing, err := s.idempotencyStore.GetIdempotency(ctx, idempotencyKey)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-
-	if existing != nil {
-		var account model.Account
-		if err := json.Unmarshal(existing.Response, &account); err != nil {
-			return err
-		}
-		return nil
-	}
-	acc, err := s.accStore.GetAccountByID(ctx, accountID)
-	if err != nil {
-		return err
-	}
-	if acc.UserID != userID {
-		return errors.New("forbidden")
-	}
-
-	return s.accStore.UpdateAccount(ctx, accountID, userID, amount)
-}
-
-func (s *AccountService) Withdraw(ctx context.Context, accountID, userID, amount int) error {
-	if accountID <= 0 {
-		return errors.New("invalid account id")
-	}
-
-	if amount <= 0 {
-		return errors.New("withdrawal amount must be greater than zero")
+		return nil, errors.New("deposit amount must be greater than zero")
 	}
 
 	idempotencyKey, ok := ctx.Value(middleware.IdempotencyKey).(string)
@@ -144,39 +131,135 @@ func (s *AccountService) Withdraw(ctx context.Context, accountID, userID, amount
 		return nil, errors.New("missing idempotency key")
 	}
 
-	existing, err := s.idempotencyStore.GetIdempotency(ctx, idempotencyKey)
+	existing, err := s.idempotencyStore.GetIdempotency(ctx, userID, idempotencyKey)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 
 	if existing != nil {
-		var account model.Account
-		if err := json.Unmarshal(existing.Response, &account); err != nil {
+		var response dto.BalanceResponse
+		if err := json.Unmarshal(existing.Response, &response); err != nil {
 			return nil, err
 		}
-		return &account, nil
+		return &response, nil
+	}
+	acc, err := s.accStore.GetAccountByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if acc.UserID != userID {
+		return nil, errors.New("forbidden")
+	}
+
+	account, err := s.accStore.UpdateAccount(ctx, accountID, userID, amount)
+	if err != nil {
+		return nil, err
+	}
+	response := &dto.BalanceResponse{
+		AccountID: account.AccountID,
+		Balance:   account.Balance,
+		Amount:    amount,
+		Message:   "Deposit completed successfully",
+	}
+
+	responseBytes, err := json.Marshal(response)
+	if err != nil {
+		return nil, err
+	}
+
+	expiresAt := time.Now().UTC().Add(24 * time.Hour)
+
+	if err := s.idempotencyStore.InsertIdempotency(
+		ctx,
+		userID,
+		idempotencyKey,
+		http.StatusOK,
+		responseBytes,
+		expiresAt,
+	); err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+func (s *AccountService) Withdraw(ctx context.Context, accountID, userID, amount int) (*dto.BalanceResponse, error) {
+	if accountID <= 0 {
+		return nil, errors.New("invalid account id")
+	}
+
+	if amount <= 0 {
+		return nil, errors.New("withdrawal amount must be greater than zero")
+	}
+
+	idempotencyKey, ok := ctx.Value(middleware.IdempotencyKey).(string)
+	if !ok || idempotencyKey == "" {
+		return nil, errors.New("missing idempotency key")
+	}
+
+	existing, err := s.idempotencyStore.GetIdempotency(ctx, userID, idempotencyKey)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	if existing != nil {
+		var response dto.BalanceResponse
+		if err := json.Unmarshal(existing.Response, &response); err != nil {
+			return nil, err
+		}
+		return &response, nil
 	}
 
 	acc, err := s.accStore.GetAccountByID(ctx, accountID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if acc.UserID != userID {
-		return errors.New("forbidden")
+		return nil, errors.New("forbidden")
 	}
 
-	return s.accStore.UpdateAccount(ctx, accountID, userID, -amount)
+	account, err := s.accStore.UpdateAccount(ctx, accountID, userID, -amount)
+	if err != nil {
+		return nil, err
+	}
+
+	response := &dto.BalanceResponse{
+		AccountID: account.AccountID,
+		Balance:   account.Balance,
+		Amount:    amount,
+		Message:   "Withdrawal completed successfully",
+	}
+
+	responseBytes, err := json.Marshal(response)
+	if err != nil {
+		return nil, err
+	}
+
+	expiresAt := time.Now().UTC().Add(24 * time.Hour)
+
+	if err := s.idempotencyStore.InsertIdempotency(
+		ctx,
+		userID,
+		idempotencyKey,
+		http.StatusOK,
+		responseBytes,
+		expiresAt,
+	); err != nil {
+		return nil, err
+	}
+
+	return response, nil
 }
 
-func (s *AccountService) Transfer(ctx context.Context, req model.TransferRequest, userID int) error {
+func (s *AccountService) Transfer(ctx context.Context, req dto.TransferRequest, userID int) (*dto.TransferResponse, error) {
 	if req.Amount <= 0 {
-		return errors.New("transfer amount must be greater than zero")
+		return nil, errors.New("transfer amount must be greater than zero")
 	}
 	if req.FromID <= 0 || req.ToID <= 0 {
-		return errors.New("invalid account id")
+		return nil, errors.New("invalid account id")
 	}
 	if req.FromID == req.ToID {
-		return errors.New("cannot transfer to same account")
+		return nil, errors.New("cannot transfer to same account")
 	}
 
 	idempotencyKey, ok := ctx.Value(middleware.IdempotencyKey).(string)
@@ -184,39 +267,69 @@ func (s *AccountService) Transfer(ctx context.Context, req model.TransferRequest
 		return nil, errors.New("missing idempotency key")
 	}
 
-	existing, err := s.idempotencyStore.GetIdempotency(ctx, idempotencyKey)
+	existing, err := s.idempotencyStore.GetIdempotency(ctx, userID, idempotencyKey)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 
 	if existing != nil {
-		var account model.Account
-		if err := json.Unmarshal(existing.Response, &account); err != nil {
+		var response dto.TransferResponse
+		if err := json.Unmarshal(existing.Response, &response); err != nil {
 			return nil, err
 		}
-		return &account, nil
+		return &response, nil
 	}
 
 	sender, err := s.accStore.GetAccountByID(ctx, req.FromID)
 	if err != nil {
-		return fmt.Errorf("sender: %w", err)
+		return nil, fmt.Errorf("sender: %w", err)
 	}
 
 	if sender.UserID != userID {
-		return fmt.Errorf("forbidden to send")
+		return nil, errors.New("forbidden")
 	}
+
 	if _, err := s.accStore.GetAccountByID(ctx, req.ToID); err != nil {
-		return fmt.Errorf("receiver: %w", err)
+		return nil, fmt.Errorf("receiver: %w", err)
 	}
 
 	if sender.Balance < req.Amount {
-		return fmt.Errorf("insufficient balance: have %d need %d", sender.Balance, req.Amount)
+		return nil, fmt.Errorf("insufficient balance: have %d need %d", sender.Balance, req.Amount)
 	}
 
-	return s.accStore.TransferTx(ctx, req.FromID, req.ToID, req.Amount)
+	if err := s.accStore.TransferTx(ctx, req.FromID, req.ToID, req.Amount); err != nil {
+		return nil, err
+	}
+
+	response := &dto.TransferResponse{
+		FromID:  req.FromID,
+		ToID:    req.ToID,
+		Amount:  req.Amount,
+		Message: "Transfer completed successfully",
+	}
+
+	responseBytes, err := json.Marshal(response)
+	if err != nil {
+		return nil, err
+	}
+
+	expiresAt := time.Now().UTC().Add(24 * time.Hour)
+
+	if err := s.idempotencyStore.InsertIdempotency(
+		ctx,
+		userID,
+		idempotencyKey,
+		http.StatusOK,
+		responseBytes,
+		expiresAt,
+	); err != nil {
+		return nil, err
+	}
+
+	return response, nil
 }
 
-func (s *AccountService) GetAccountByID(ctx context.Context, accountID, userID int) (*model.Account, error) {
+func (s *AccountService) GetAccountByID(ctx context.Context, accountID, userID int) (*dto.AccountResponse, error) {
 	if accountID <= 0 {
 		return nil, errors.New("invalid account id")
 	}
@@ -230,31 +343,22 @@ func (s *AccountService) GetAccountByID(ctx context.Context, accountID, userID i
 		return nil, errors.New("unauthorized")
 	}
 
-	return account, nil
+	return &dto.AccountResponse{
+		AccountID: account.AccountID,
+		Balance:   account.Balance,
+	}, nil
 }
 
-func (s *AccountService) DeleteAccount(ctx context.Context, accountID, userID int) error {
+func (s *AccountService) DeleteAccount(ctx context.Context, accountID, userID int) (*dto.DeleteAccountResponse, error) {
 	if accountID <= 0 {
-		return errors.New("invalid account id")
+		return nil, errors.New("invalid account id")
 	}
 
-	idempotencyKey, ok := ctx.Value(middleware.IdempotencyKey).(string)
-	if !ok || idempotencyKey == "" {
-		return nil, errors.New("missing idempotency key")
-	}
-
-	existing, err := s.idempotencyStore.GetIdempotency(ctx, idempotencyKey)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := s.accStore.DeleteAccount(ctx, accountID, userID); err != nil {
 		return nil, err
 	}
 
-	if existing != nil {
-		var account model.Account
-		if err := json.Unmarshal(existing.Response, &account); err != nil {
-			return nil, err
-		}
-		return &account, nil
-	}
-	
-	return s.accStore.DeleteAccount(ctx, accountID, userID)
+	return &dto.DeleteAccountResponse{
+		Message: "Account deleted successfully",
+	}, nil
 }
