@@ -1,9 +1,10 @@
 package handler
 
 import (
+	"banking-app/internal/dto"
 	"banking-app/internal/middleware"
-	"banking-app/internal/model"
 	"banking-app/internal/service"
+	"banking-app/internal/utils"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,9 +21,9 @@ func NewAccountHandler(service *service.AccountService) *AccountHandler {
 }
 
 func (h *AccountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {
-	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+	claims := r.Context().Value(middleware.ClaimsKey).(*utils.Claims)
 
-	var req model.CreateAccountRequest
+	var req dto.CreateAccountRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
@@ -54,7 +55,7 @@ func (h *AccountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AccountHandler) GetAccounts(w http.ResponseWriter, r *http.Request) {
-	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+	claims := r.Context().Value(middleware.ClaimsKey).(*utils.Claims)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
@@ -83,7 +84,7 @@ func (h *AccountHandler) GetAccountByID(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+	claims := r.Context().Value(middleware.ClaimsKey).(*utils.Claims)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
@@ -111,7 +112,7 @@ func (h *AccountHandler) Deposit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	var req model.AmountRequest
+	var req dto.BalanceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
@@ -126,10 +127,9 @@ func (h *AccountHandler) Deposit(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+	claims := r.Context().Value(middleware.ClaimsKey).(*utils.Claims)
 
-	err = h.service.Deposit(ctx, accountID, claims.UserID, req.Amount)
-
+	response, err := h.service.Deposit(ctx, accountID, claims.UserID, req.Amount)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			http.Error(w, "request timed out", http.StatusGatewayTimeout)
@@ -138,7 +138,13 @@ func (h *AccountHandler) Deposit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
 }
 
 func (h *AccountHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
@@ -148,7 +154,7 @@ func (h *AccountHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	var req model.AmountRequest
+	var req dto.BalanceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
@@ -163,10 +169,9 @@ func (h *AccountHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+	claims := r.Context().Value(middleware.ClaimsKey).(*utils.Claims)
 
-	err = h.service.Withdraw(ctx, accountID, claims.UserID, req.Amount)
-
+	response, err := h.service.Withdraw(ctx, accountID, claims.UserID, req.Amount)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			http.Error(w, "request timed out", http.StatusGatewayTimeout)
@@ -175,11 +180,17 @@ func (h *AccountHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
 }
 
 func (h *AccountHandler) Transfer(w http.ResponseWriter, r *http.Request) {
-	var req model.TransferRequest
+	var req dto.TransferRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
@@ -188,9 +199,9 @@ func (h *AccountHandler) Transfer(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
-	err := h.service.Transfer(ctx, req, claims.UserID)
+	claims := r.Context().Value(middleware.ClaimsKey).(*utils.Claims)
 
+	response, err := h.service.Transfer(ctx, req, claims.UserID)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			http.Error(w, "request timed out", http.StatusGatewayTimeout)
@@ -199,7 +210,13 @@ func (h *AccountHandler) Transfer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
 }
 
 func (h *AccountHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
@@ -212,11 +229,18 @@ func (h *AccountHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+	claims := r.Context().Value(middleware.ClaimsKey).(*utils.Claims)
 
-	if err := h.service.DeleteAccount(ctx, accountID, claims.UserID); err != nil {
+	response, err := h.service.DeleteAccount(ctx, accountID, claims.UserID)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
 }

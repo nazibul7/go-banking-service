@@ -1,9 +1,10 @@
 package handler
 
 import (
+	"banking-app/internal/dto"
 	"banking-app/internal/middleware"
-	"banking-app/internal/model"
 	"banking-app/internal/service"
+	"banking-app/internal/utils"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,7 +21,7 @@ func NewAuthHandler(service *service.AuthService) *AuthHandler {
 }
 
 func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
-	var req model.SignupRequest
+	var req dto.SignupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
@@ -47,7 +48,7 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) Signin(w http.ResponseWriter, r *http.Request) {
-	var req model.SigninRequest
+	var req dto.SigninRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
@@ -74,7 +75,7 @@ func (h *AuthHandler) Signin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
-	var req model.RefreshTokenRequest
+	var req dto.RefreshTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
@@ -104,7 +105,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	var req model.RefreshTokenRequest
+	var req dto.RefreshTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
@@ -115,11 +116,11 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims := r.Context().Value(middleware.ClaimsKey).(*model.Claims)
+	claims := r.Context().Value(middleware.ClaimsKey).(*utils.Claims)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	
+
 	err := h.service.Logout(ctx, req.RefreshToken, claims.UserID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
