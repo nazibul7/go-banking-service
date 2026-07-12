@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"banking-app/internal/model"
 	"banking-app/internal/utils"
 	"context"
 	"net/http"
@@ -26,7 +25,7 @@ func Auth(next http.Handler) http.Handler {
 		}
 
 		tokenString := parts[1]
-		claims, err := utils.VerifyToken(tokenString, "", model.TokenTypeAccess)
+		claims, err := utils.VerifyToken(tokenString, "")
 		if err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

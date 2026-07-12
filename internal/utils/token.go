@@ -11,13 +11,19 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+type Claims struct {
+	UserID int        `json:"user_id"`
+	Email  string     `json:"email"`
+	Role   model.Role `json:"role"`
+	jwt.RegisteredClaims
+}
+
 func GenerateAccessToken(userID int, email string, role model.Role, expires_at time.Duration, secret string) (string, error) {
 	expiresAt := time.Now().Add(expires_at)
-	claim := model.Claims{
-		UserID:    userID,
-		Email:     email,
-		Role:      role,
-		TokenType: model.TokenTypeAccess,
+	claim := Claims{
+		UserID: userID,
+		Email:  email,
+		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -41,8 +47,7 @@ func GenerateRefreshToken() (string, time.Time, error) {
 func VerifyToken(
 	tokenString string,
 	secret string,
-	tokenType model.TokenType,
-) (*model.Claims, error) {
+) (*Claims, error) {
 
 	// Empty struct where JWT library will store parsed claims.
 	//
@@ -53,7 +58,7 @@ func VerifyToken(
 	// etc...
 	//
 	// will be automatically populated.
-	claim := model.Claims{}
+	claim := Claims{}
 
 	// ParseWithClaims does MANY things internally:
 	//
@@ -147,10 +152,6 @@ func VerifyToken(
 	// - claims valid
 	if !token.Valid {
 		return nil, errors.New("invalid token")
-	}
-
-	if claim.TokenType != tokenType {
-		return nil, errors.New("invalid token type")
 	}
 
 	// At this point:
