@@ -28,7 +28,7 @@ func (s *RefreshTokenStore) DeleteToken(ctx context.Context, tokenHash string) e
 func (s *RefreshTokenStore) FindToken(
 	ctx context.Context,
 	tokenHash string,
-) (*model.RefreshTokenUser, error) {
+) (*model.RefreshToken, error) {
 
 	query := `
 	SELECT
@@ -46,7 +46,7 @@ func (s *RefreshTokenStore) FindToken(
 	WHERE rt.token_hash = $1
 	`
 
-	var token model.RefreshTokenUser
+	var token model.RefreshToken
 
 	err := s.db.QueryRowContext(
 		ctx,
