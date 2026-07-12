@@ -12,4 +12,5 @@ type Idempotency struct {
 	StatusCode     int
 	Response       json.RawMessage
 	CreatedAt      time.Time
+	ExpiresAt      time.Time
 }
