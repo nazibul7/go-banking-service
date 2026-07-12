@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	connStr := `postgres://myuser:mypassword@localhost:5433/mydb?sslmode=disable`
+	connStr := `postgres://myuser:mypassword@localhost:5432/mydb?sslmode=disable`
 	database.RunMigrations(connStr)
 
 	db, err := database.NewPostgresDB(connStr)
@@ -41,10 +41,10 @@ func main() {
 	muxHandler = middleware.RequestID(muxHandler)
 	muxHandler = middleware.Recoverer(muxHandler)
 
-	mux.HandleFunc("POST /signup", authHandler.Signup)
-	mux.HandleFunc("POST /signin", authHandler.Signin)
-	mux.HandleFunc("POST /refresh", authHandler.Refresh)
-	mux.Handle("POST /logout", middleware.Auth(http.HandlerFunc(authHandler.Logout)))
+	mux.HandleFunc("POST /auth/signup", authHandler.Signup)
+	mux.HandleFunc("POST /auth/signin", authHandler.Signin)
+	mux.HandleFunc("POST /auth/refresh", authHandler.Refresh)
+	mux.Handle("POST /auth/logout", middleware.Auth(http.HandlerFunc(authHandler.Logout)))
 
 	mux.Handle("POST /account", middleware.Auth(middleware.Idempotency(http.HandlerFunc(accHandler.CreateAccount))))
 	mux.Handle("GET /accounts", middleware.Auth(http.HandlerFunc(accHandler.GetAccounts)))
