@@ -7,28 +7,26 @@ import (
 	"errors"
 )
 
-type AccountStore struct {
-	db *sql.DB
+type AccountStore struct{}
+
+func NewAccountStore() *AccountStore {
+	return &AccountStore{}
 }
 
-func NewAccountStore(db *sql.DB) *AccountStore {
-	return &AccountStore{db: db}
-}
-
-func (s *AccountStore) CreateAccount(ctx context.Context, balance, userID int) (*model.Account, error) {
+func (s *AccountStore) CreateAccount(ctx context.Context, db DBTX, balance, userID int) (*model.Account, error) {
 	query := `INSERT INTO accounts (balance, user_id) VALUES ($1,$2) RETURNING id`
 	var accountID int
-	err := s.db.QueryRowContext(ctx, query, balance, userID).Scan(&accountID)
+	err := db.QueryRowContext(ctx, query, balance, userID).Scan(&accountID)
 	if err != nil {
 		return nil, err
 	}
 	return &model.Account{AccountID: accountID, UserID: userID, Balance: balance}, nil
 }
 
-func (s *AccountStore) GetAccounts(ctx context.Context, userID int) ([]model.Account, error) {
+func (s *AccountStore) GetAccounts(ctx context.Context, db DBTX, userID int) ([]model.Account, error) {
 	query := `SELECT id, user_id, balance FROM accounts WHERE user_id=$1`
 	var accounts []model.Account
-	rows, err := s.db.QueryContext(ctx, query, userID)
+	rows, err := db.QueryContext(ctx, query, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -67,18 +65,18 @@ func (s *AccountStore) GetAccounts(ctx context.Context, userID int) ([]model.Acc
 	return accounts, nil
 }
 
-func (s *AccountStore) GetAccountByID(ctx context.Context, accountID int) (*model.Account, error) {
+func (s *AccountStore) GetAccountByID(ctx context.Context, db DBTX, accountID int) (*model.Account, error) {
 	query := `SELECT id, user_id, balance FROM accounts WHERE id = $1`
 	var account model.Account
 
-	err := s.db.QueryRowContext(ctx, query, accountID).Scan(&account.AccountID, &account.UserID, &account.Balance)
+	err := db.QueryRowContext(ctx, query, accountID).Scan(&account.AccountID, &account.UserID, &account.Balance)
 	if err != nil {
 		return nil, err
 	}
 	return &account, nil
 }
 
-func (s *AccountStore) UpdateAccount(ctx context.Context, accountID, userID int, amount int) (*model.Account, error) {
+func (s *AccountStore) UpdateAccount(ctx context.Context, db DBTX, accountID, userID int, amount int) (*model.Account, error) {
 	var query string
 	if amount < 0 {
 		query = `UPDATE accounts SET balance = balance + $1 WHERE id = $2 AND user_id = $3 AND balance + $1 >=0
@@ -89,7 +87,7 @@ func (s *AccountStore) UpdateAccount(ctx context.Context, accountID, userID int,
 
 	var account model.Account
 
-	err := s.db.QueryRowContext(ctx, query, amount, accountID, userID).Scan(&account.AccountID, &account.UserID, &account.Balance)
+	err := db.QueryRowContext(ctx, query, amount, accountID, userID).Scan(&account.AccountID, &account.UserID, &account.Balance)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sql.ErrNoRows
@@ -100,13 +98,7 @@ func (s *AccountStore) UpdateAccount(ctx context.Context, accountID, userID int,
 	return &account, nil
 }
 
-func (s *AccountStore) TransferTx(ctx context.Context, fromID, toID, amount int) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
+func (s *AccountStore) Transfer(ctx context.Context, db DBTX, fromID, toID, amount int) error {
 	var firstID, secondID int
 	var firstAmount, secondAmount int
 
@@ -122,7 +114,7 @@ func (s *AccountStore) TransferTx(ctx context.Context, fromID, toID, amount int)
 	query = `UPDATE accounts SET balance = balance + $1 WHERE id=$2 AND balance + $1 >=0`
 
 	// deduct from sender
-	result, err := tx.ExecContext(ctx, query, firstAmount, firstID)
+	result, err := db.ExecContext(ctx, query, firstAmount, firstID)
 	if err != nil {
 		return err
 	}
@@ -137,7 +129,7 @@ func (s *AccountStore) TransferTx(ctx context.Context, fromID, toID, amount int)
 	// credit to receiver
 
 	query = `UPDATE accounts SET balance = balance + $1 WHERE id=$2`
-	result, err = tx.ExecContext(ctx, query, secondAmount, secondID)
+	result, err = db.ExecContext(ctx, query, secondAmount, secondID)
 	if err != nil {
 		return err
 	}
@@ -148,14 +140,13 @@ func (s *AccountStore) TransferTx(ctx context.Context, fromID, toID, amount int)
 	if rows == 0 {
 		return sql.ErrNoRows
 	}
-
-	return tx.Commit()
+	return nil
 }
 
-func (s *AccountStore) DeleteAccount(ctx context.Context, accountID, userID int) error {
+func (s *AccountStore) DeleteAccount(ctx context.Context, db DBTX, accountID, userID int) error {
 	query := `DELETE FROM accounts WHERE id=$1 AND user_id = $2`
 
-	result, err := s.db.ExecContext(ctx, query, accountID, userID)
+	result, err := db.ExecContext(ctx, query, accountID, userID)
 	if err != nil {
 		return err
 	}

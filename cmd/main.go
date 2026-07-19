@@ -24,15 +24,14 @@ func main() {
 	// Ensure the connection is closed when main exits
 	defer db.Close()
 
-	accStore := store.NewAccountStore(db)
-	idempotencyStore := store.NewIdempotencyStore(db)
-	accService := service.NewAccountService(accStore, idempotencyStore)
+	accStore := store.NewAccountStore()
+	idempotencyStore := store.NewIdempotencyStore()
+	accService := service.NewAccountService(db, accStore, idempotencyStore)
 	accHandler := handler.NewAccountHandler(accService)
 
-	authStores := store.NewAuthStore(db)
-	refreshStore := store.NewRefreshTokenStore(db)
-	tsStore := store.NewTxStore(db)
-	authService := service.NewAuthService(authStores, refreshStore, tsStore)
+	authStores := store.NewAuthStore()
+	refreshStore := store.NewRefreshTokenStore()
+	authService := service.NewAuthService(db, authStores, refreshStore)
 	authHandler := handler.NewAuthHandler(authService)
 
 	mux := http.NewServeMux()

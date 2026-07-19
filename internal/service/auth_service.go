@@ -11,16 +11,16 @@ import (
 )
 
 type AuthService struct {
+	db                *sql.DB
 	authStore         *store.AuthStore
 	refreshTokenStore *store.RefreshTokenStore
-	txStore           *store.TxStore
 }
 
-func NewAuthService(authStore *store.AuthStore, refreshTokenStore *store.RefreshTokenStore, txStore *store.TxStore) *AuthService {
+func NewAuthService(db *sql.DB, authStore *store.AuthStore, refreshTokenStore *store.RefreshTokenStore) *AuthService {
 	return &AuthService{
+		db:                db,
 		authStore:         authStore,
 		refreshTokenStore: refreshTokenStore,
-		txStore:           txStore,
 	}
 }
 
@@ -28,7 +28,14 @@ func (s *AuthService) Signup(ctx context.Context, req dto.SignupRequest) (*dto.A
 	if req.Email == "" || req.Password == "" {
 		return nil, errors.New("invalid request")
 	}
-	_, err := s.authStore.GetUserByEmail(ctx, req.Email)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	_, err = s.authStore.GetUserByEmail(ctx, tx, req.Email)
 	if err == nil {
 		return nil, errors.New("email already in use")
 	}
@@ -47,13 +54,22 @@ func (s *AuthService) Signup(ctx context.Context, req dto.SignupRequest) (*dto.A
 		return nil, err
 	}
 	hashRefreshToken := utils.HashToken(refreshToken)
-	user, err := s.txStore.RegisterTx(ctx, req.Email, hashPassword, hashRefreshToken, expiresAt)
+
+	user, err := s.authStore.CreateUser(ctx, tx, req.Email, hashPassword)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := s.refreshTokenStore.SaveToken(ctx, tx, user.ID, hashRefreshToken, expiresAt); err != nil {
 		return nil, err
 	}
 
 	accessToken, err := utils.GenerateAccessToken(user.ID, user.Email, user.Role, 15*time.Minute, "")
 	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
@@ -65,7 +81,7 @@ func (s *AuthService) Signup(ctx context.Context, req dto.SignupRequest) (*dto.A
 		},
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		Message: "User created successfully",
+		Message:      "User created successfully",
 	}
 	return authResponse, nil
 }
@@ -74,7 +90,7 @@ func (s *AuthService) Signin(ctx context.Context, req dto.SigninRequest) (*dto.A
 	if req.Email == "" || req.Password == "" {
 		return nil, errors.New("invalid request")
 	}
-	existingUser, err := s.authStore.GetUserByEmail(ctx, req.Email)
+	existingUser, err := s.authStore.GetUserByEmail(ctx, s.db, req.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +110,8 @@ func (s *AuthService) Signin(ctx context.Context, req dto.SigninRequest) (*dto.A
 		return nil, err
 	}
 	hashRefreshToken := utils.HashToken(refreshToken)
-	err = s.refreshTokenStore.SaveToken(ctx, existingUser.ID, hashRefreshToken, expiresAt)
+
+	err = s.refreshTokenStore.SaveToken(ctx, s.db, existingUser.ID, hashRefreshToken, expiresAt)
 	if err != nil {
 		return nil, err
 	}
@@ -107,14 +124,22 @@ func (s *AuthService) Signin(ctx context.Context, req dto.SigninRequest) (*dto.A
 		},
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		Message: "Signed in successfully",
+		Message:      "Signed in successfully",
 	}
+
 	return authResponse, nil
 }
 
 func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*dto.AuthResponse, error) {
 	tokenHash := utils.HashToken(refreshToken)
-	token, err := s.refreshTokenStore.FindToken(ctx, tokenHash)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	token, err := s.refreshTokenStore.FindToken(ctx, tx, tokenHash)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errors.New("invalid refresh token")
@@ -141,31 +166,36 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (*dto.Au
 		return nil, err
 	}
 	hashRefreshToken := utils.HashToken(newRefreshToken)
-	err = s.txStore.RotateTokenTx(ctx, token.UserID, tokenHash, hashRefreshToken, expiresAt)
+
+	err = s.refreshTokenStore.RevokeToken(ctx, tx, tokenHash)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := s.authStore.GetUserByEmail(ctx, token.Email)
+	err = s.refreshTokenStore.SaveToken(ctx, tx, token.UserID, hashRefreshToken, expiresAt)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
 	return &dto.AuthResponse{
 		User: dto.UserResponse{
-			ID:    user.ID,
-			Email: user.Email,
-			Role:  user.Role,
+			ID:    token.UserID,
+			Email: token.Email,
+			Role:  token.Role,
 		},
 		AccessToken:  accessToken,
 		RefreshToken: newRefreshToken,
-		Message: "Token refreshed successfully",
+		Message:      "Token refreshed successfully",
 	}, nil
 }
 
 func (s *AuthService) Logout(ctx context.Context, refreshToken string, userID int) error {
 	tokenHash := utils.HashToken(refreshToken)
-	token, err := s.refreshTokenStore.FindToken(ctx, tokenHash)
+	token, err := s.refreshTokenStore.FindToken(ctx, s.db, tokenHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return errors.New("invalid refresh token")
 	}
@@ -185,7 +215,7 @@ func (s *AuthService) Logout(ctx context.Context, refreshToken string, userID in
 		return errors.New("refresh token has expired")
 	}
 
-	if err = s.refreshTokenStore.RevokeToken(ctx, tokenHash); err != nil {
+	if err = s.refreshTokenStore.RevokeToken(ctx, s.db, tokenHash); err != nil {
 		return err
 	}
 	return nil

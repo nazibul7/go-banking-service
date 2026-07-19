@@ -3,30 +3,28 @@ package store
 import (
 	"banking-app/internal/model"
 	"context"
-	"database/sql"
 	"time"
 )
 
-type RefreshTokenStore struct {
-	db *sql.DB
+type RefreshTokenStore struct{}
+
+func NewRefreshTokenStore() *RefreshTokenStore {
+	return &RefreshTokenStore{}
 }
 
-func NewRefreshTokenStore(db *sql.DB) *RefreshTokenStore {
-	return &RefreshTokenStore{db: db}
-}
-
-func (s *RefreshTokenStore) SaveToken(ctx context.Context, userID int, hashToken string, expires time.Time) error {
+func (s *RefreshTokenStore) SaveToken(ctx context.Context, db DBTX, userID int, hashToken string, expires time.Time) error {
 	query := `INSERT INTO refresh_tokens(user_id,token_hash, expires_at) VALUES($1, $2, $3)`
-	_, err := s.db.ExecContext(ctx, query, userID, hashToken, expires)
+	_, err := db.ExecContext(ctx, query, userID, hashToken, expires)
 	return err
 }
-func (s *RefreshTokenStore) DeleteToken(ctx context.Context, tokenHash string) error {
+func (s *RefreshTokenStore) DeleteToken(ctx context.Context, db DBTX, tokenHash string) error {
 	query := `DELETE FROM refresh_tokens WHERE token_hash = $1`
-	_, err := s.db.ExecContext(ctx, query, tokenHash)
+	_, err := db.ExecContext(ctx, query, tokenHash)
 	return err
 }
 func (s *RefreshTokenStore) FindToken(
 	ctx context.Context,
+	db DBTX,
 	tokenHash string,
 ) (*model.RefreshToken, error) {
 
@@ -48,7 +46,7 @@ func (s *RefreshTokenStore) FindToken(
 
 	var token model.RefreshToken
 
-	err := s.db.QueryRowContext(
+	err := db.QueryRowContext(
 		ctx,
 		query,
 		tokenHash,
@@ -71,6 +69,7 @@ func (s *RefreshTokenStore) FindToken(
 }
 func (s *RefreshTokenStore) RevokeToken(
 	ctx context.Context,
+	db DBTX,
 	tokenHash string,
 ) error {
 
@@ -80,7 +79,7 @@ func (s *RefreshTokenStore) RevokeToken(
 	WHERE token_hash = $1
 	`
 
-	_, err := s.db.ExecContext(
+	_, err := db.ExecContext(
 		ctx,
 		query,
 		tokenHash,
