@@ -26,13 +26,17 @@ func main() {
 
 	accStore := store.NewAccountStore()
 	idempotencyStore := store.NewIdempotencyStore()
-	accService := service.NewAccountService(db, accStore, idempotencyStore)
+	transactionStore := store.NewTransactionStore()
+	accService := service.NewAccountService(db, accStore, idempotencyStore, transactionStore)
 	accHandler := handler.NewAccountHandler(accService)
 
 	authStores := store.NewAuthStore()
 	refreshStore := store.NewRefreshTokenStore()
 	authService := service.NewAuthService(db, authStores, refreshStore)
 	authHandler := handler.NewAuthHandler(authService)
+
+	transactionService := service.NewTransactionService(db, accStore, transactionStore)
+	transactionHandler := handler.NewTransactionHandler(transactionService)
 
 	mux := http.NewServeMux()
 
@@ -52,6 +56,10 @@ func main() {
 	mux.Handle("PATCH /account/{id}/withdraw", middleware.Auth(middleware.Idempotency(http.HandlerFunc(accHandler.Withdraw))))
 	mux.Handle("DELETE /account/{id}", middleware.Auth(http.HandlerFunc(accHandler.DeleteAccount)))
 	mux.Handle("POST /account/transfer", middleware.Auth(middleware.Idempotency(http.HandlerFunc(accHandler.Transfer))))
+
+	mux.Handle("GET /transactions", middleware.Auth(http.HandlerFunc(transactionHandler.GetTransactions)))
+	mux.Handle("GET /accounts/{id}/transactions", middleware.Auth(http.HandlerFunc(transactionHandler.GetAccountTransactions)))
+	mux.Handle("GET /transactions/{id}", middleware.Auth(http.HandlerFunc(transactionHandler.GetTransactionByID)))
 
 	server := app.NewServer(":8080", muxHandler)
 	if err := app.RunWithGracefulShutdown(server, 10*time.Second); err != nil {
