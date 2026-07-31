@@ -25,7 +25,7 @@ func (s *IdempotencyStore) GetIdempotency(ctx context.Context, db DBTX, userID i
 	 response,
 	 created_at,
 	 expires_at
-	 FROM idempotency_keys WHERE user_id = $1 AND idempotency_key = $2`
+	 FROM idempotency_keys WHERE user_id = $1 AND idempotency_key = $2 AND expires_at>now()`
 	var idempotency model.Idempotency
 	err := db.QueryRowContext(ctx, query, userID, idempotencyKey).Scan(
 		&idempotency.ID,
