@@ -127,8 +127,7 @@ func (s *TransactionService) GetAccountTransactions(
 	if err != nil {
 		return nil, err
 	}
-
-	if acc.UserID != userID {
+	if acc.AccountID != accountID {
 		return nil, errors.New("forbidden")
 	}
 
