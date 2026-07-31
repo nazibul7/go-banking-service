@@ -39,17 +39,23 @@ type IdempotencyStorer interface {
 	InsertIdempotency(ctx context.Context, db store.DBTX, userID int, idempotencyKey string, statusCode int, response json.RawMessage, expiresAt time.Time) error
 }
 
+type TransactionStorer interface {
+	CreateTransaction(ctx context.Context, db store.DBTX, fromAccountID, toAccountID *int, amount int, idempotencyKey string, transactionType model.TransactionType, transactionStatus model.TransactionStatus) error
+}
+
 type AccountService struct {
 	db               *sql.DB
 	accStore         AccountStorer
 	idempotencyStore IdempotencyStorer
+	transactionStore TransactionStorer
 }
 
-func NewAccountService(db *sql.DB, accStore AccountStorer, idempotencyStore IdempotencyStorer) *AccountService {
+func NewAccountService(db *sql.DB, accStore AccountStorer, idempotencyStore IdempotencyStorer, transactionStore TransactionStorer) *AccountService {
 	return &AccountService{
 		db:               db,
 		accStore:         accStore,
 		idempotencyStore: idempotencyStore,
+		transactionStore: transactionStore,
 	}
 }
 
@@ -174,6 +180,11 @@ func (s *AccountService) Deposit(ctx context.Context, accountID, userID, amount 
 	if err != nil {
 		return nil, err
 	}
+
+	if err := s.transactionStore.CreateTransaction(ctx, tx, nil, &accountID, amount, idempotencyKey, model.TransactionDeposit, model.TransactionCompleted); err != nil {
+		return nil, err
+	}
+
 	response := &dto.BalanceResponse{
 		AccountID: account.AccountID,
 		Balance:   account.Balance,
@@ -250,6 +261,10 @@ func (s *AccountService) Withdraw(ctx context.Context, accountID, userID, amount
 
 	account, err := s.accStore.UpdateAccount(ctx, tx, accountID, userID, -amount)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := s.transactionStore.CreateTransaction(ctx, tx, &accountID, nil, amount, idempotencyKey, model.TransactionWithdraw, model.TransactionCompleted); err != nil {
 		return nil, err
 	}
 
@@ -340,6 +355,10 @@ func (s *AccountService) Transfer(ctx context.Context, req dto.TransferRequest, 
 	}
 
 	if err := s.accStore.Transfer(ctx, tx, req.FromID, req.ToID, req.Amount); err != nil {
+		return nil, err
+	}
+
+	if err := s.transactionStore.CreateTransaction(ctx, tx, &req.FromID, &req.ToID, req.Amount, idempotencyKey, model.TransactionTransfer, model.TransactionCompleted); err != nil {
 		return nil, err
 	}
 
