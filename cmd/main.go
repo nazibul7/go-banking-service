@@ -4,6 +4,7 @@ import (
 	"banking-app/internal/app"
 	"banking-app/internal/database"
 	"banking-app/internal/handler"
+	"banking-app/internal/kafka"
 	"banking-app/internal/middleware"
 	"banking-app/internal/service"
 	"banking-app/internal/store"
@@ -14,7 +15,7 @@ import (
 )
 
 func main() {
-	connStr := `postgres://myuser:mypassword@localhost:5432/mydb?sslmode=disable`
+	connStr := `postgres://myuser:mypassword@172.17.176.1:5432/mydb?sslmode=disable`
 	database.RunMigrations(connStr)
 
 	db, err := database.NewPostgresDB(connStr)
@@ -24,10 +25,17 @@ func main() {
 	// Ensure the connection is closed when main exits
 	defer db.Close()
 
+	cfg, err := kafka.LoadConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+	producer := kafka.NewProducer(cfg)
+	defer producer.Close()
+
 	accStore := store.NewAccountStore()
 	idempotencyStore := store.NewIdempotencyStore()
 	transactionStore := store.NewTransactionStore()
-	accService := service.NewAccountService(db, accStore, idempotencyStore, transactionStore)
+	accService := service.NewAccountService(db, accStore, idempotencyStore, transactionStore, producer)
 	accHandler := handler.NewAccountHandler(accService)
 
 	authStores := store.NewAuthStore()

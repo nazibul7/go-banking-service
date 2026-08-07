@@ -2,6 +2,7 @@ package service
 
 import (
 	"banking-app/internal/dto"
+	"banking-app/internal/kafka"
 	"banking-app/internal/middleware"
 	"banking-app/internal/model"
 	"banking-app/internal/store"
@@ -10,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 )
@@ -40,7 +42,7 @@ type IdempotencyStorer interface {
 }
 
 type TransactionStorer interface {
-	CreateTransaction(ctx context.Context, db store.DBTX, fromAccountID, toAccountID *int, amount int, idempotencyKey string, transactionType model.TransactionType, transactionStatus model.TransactionStatus) error
+	CreateTransaction(ctx context.Context, db store.DBTX, fromAccountID, toAccountID *int, amount int, idempotencyKey string, transactionType model.TransactionType, transactionStatus model.TransactionStatus) (*model.Transaction, error)
 }
 
 type AccountService struct {
@@ -48,14 +50,16 @@ type AccountService struct {
 	accStore         AccountStorer
 	idempotencyStore IdempotencyStorer
 	transactionStore TransactionStorer
+	producer         *kafka.Producer
 }
 
-func NewAccountService(db *sql.DB, accStore AccountStorer, idempotencyStore IdempotencyStorer, transactionStore TransactionStorer) *AccountService {
+func NewAccountService(db *sql.DB, accStore AccountStorer, idempotencyStore IdempotencyStorer, transactionStore TransactionStorer, producer *kafka.Producer) *AccountService {
 	return &AccountService{
 		db:               db,
 		accStore:         accStore,
 		idempotencyStore: idempotencyStore,
 		transactionStore: transactionStore,
+		producer:         producer,
 	}
 }
 
@@ -116,6 +120,20 @@ func (s *AccountService) CreateAccount(ctx context.Context, balance, userID int)
 		return nil, err
 	}
 
+	accountCreatedEvent := kafka.AccountCreatedEvent{
+		AccountID: account.AccountID,
+		UserID:    account.UserID,
+		Balance:   account.Balance,
+		CreatedAt: time.Now().UTC(),
+	}
+
+	if err := s.producer.Publish(ctx, kafka.AccountTopic, response.AccountID, accountCreatedEvent); err != nil {
+		log.Printf(
+			"failed to publish AccountCreatedEvent for account %d: %v",
+			account.AccountID,
+			err,
+		)
+	}
 	return response, nil
 }
 
@@ -181,7 +199,8 @@ func (s *AccountService) Deposit(ctx context.Context, accountID, userID, amount 
 		return nil, err
 	}
 
-	if err := s.transactionStore.CreateTransaction(ctx, tx, nil, &accountID, amount, idempotencyKey, model.TransactionDeposit, model.TransactionCompleted); err != nil {
+	transaction, err := s.transactionStore.CreateTransaction(ctx, tx, nil, &accountID, amount, idempotencyKey, model.TransactionDeposit, model.TransactionCompleted)
+	if err != nil {
 		return nil, err
 	}
 
@@ -213,6 +232,22 @@ func (s *AccountService) Deposit(ctx context.Context, accountID, userID, amount 
 
 	if err := tx.Commit(); err != nil {
 		return nil, err
+	}
+
+	depositCompletedEvent := kafka.DepositCompletedEvent{
+		TransactionID:   transaction.ID,
+		AccountID:       *transaction.FromAccountID,
+		TransactionType: transaction.TransactionType,
+		Amount:          transaction.Amount,
+		OccurredAt:      transaction.CreatedAt,
+	}
+
+	if err := s.producer.Publish(ctx, kafka.TransactionTopic, account.AccountID, depositCompletedEvent); err != nil {
+		log.Printf(
+			"failed to publish DepositCompletedEvent for account %d: %v",
+			account.AccountID,
+			err,
+		)
 	}
 
 	return response, nil
@@ -264,7 +299,8 @@ func (s *AccountService) Withdraw(ctx context.Context, accountID, userID, amount
 		return nil, err
 	}
 
-	if err := s.transactionStore.CreateTransaction(ctx, tx, &accountID, nil, amount, idempotencyKey, model.TransactionWithdraw, model.TransactionCompleted); err != nil {
+	transaction, err := s.transactionStore.CreateTransaction(ctx, tx, &accountID, nil, amount, idempotencyKey, model.TransactionWithdraw, model.TransactionCompleted)
+	if err != nil {
 		return nil, err
 	}
 
@@ -296,6 +332,22 @@ func (s *AccountService) Withdraw(ctx context.Context, accountID, userID, amount
 
 	if err := tx.Commit(); err != nil {
 		return nil, err
+	}
+
+	withdrawCompletedEvent := kafka.WithdrawCompletedEvent{
+		TransactionID:   transaction.ID,
+		AccountID:       *transaction.FromAccountID,
+		TransactionType: transaction.TransactionType,
+		Amount:          transaction.Amount,
+		OccurredAt:      transaction.CreatedAt,
+	}
+
+	if err := s.producer.Publish(ctx, kafka.TransactionTopic, account.AccountID, withdrawCompletedEvent); err != nil {
+		log.Printf(
+			"failed to publish WithdrawCompletedEvent for account %d: %v",
+			account.AccountID,
+			err,
+		)
 	}
 
 	return response, nil
@@ -358,7 +410,8 @@ func (s *AccountService) Transfer(ctx context.Context, req dto.TransferRequest, 
 		return nil, err
 	}
 
-	if err := s.transactionStore.CreateTransaction(ctx, tx, &req.FromID, &req.ToID, req.Amount, idempotencyKey, model.TransactionTransfer, model.TransactionCompleted); err != nil {
+	transaction, err := s.transactionStore.CreateTransaction(ctx, tx, &req.FromID, &req.ToID, req.Amount, idempotencyKey, model.TransactionTransfer, model.TransactionCompleted)
+	if err != nil {
 		return nil, err
 	}
 
@@ -390,6 +443,23 @@ func (s *AccountService) Transfer(ctx context.Context, req dto.TransferRequest, 
 
 	if err := tx.Commit(); err != nil {
 		return nil, err
+	}
+
+	transferCompletedEvent := kafka.TransferCompletedEvent{
+		TransactionID:   transaction.ID,
+		FromAccountID:   *transaction.FromAccountID,
+		ToAccountID:     *transaction.ToAccountID,
+		TransactionType: transaction.TransactionType,
+		Amount:          transaction.Amount,
+		OccurredAt:      transaction.CreatedAt,
+	}
+
+	if err := s.producer.Publish(ctx, kafka.TransactionTopic, sender.AccountID, transferCompletedEvent); err != nil {
+		log.Printf(
+			"failed to publish TransferCompletedEvent for account %d: %v",
+			sender.AccountID,
+			err,
+		)
 	}
 
 	return response, nil

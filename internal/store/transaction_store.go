@@ -21,8 +21,8 @@ func (t *TransactionStore) CreateTransaction(
 	idempotencyKey string,
 	transactionType model.TransactionType,
 	transactionStatus model.TransactionStatus,
-) error {
-
+) (*model.Transaction, error) {
+	var tx model.Transaction
 	query := `
 		INSERT INTO transactions (
 			from_account_id,
@@ -33,9 +33,18 @@ func (t *TransactionStore) CreateTransaction(
 			idempotency_key
 		)
 		VALUES ($1,$2,$3,$4,$5,$6)
+		RETURNING 
+			id,
+			from_account_id,
+			to_account_id,
+			amount,
+			transaction_type,
+			status,
+			idempotency_key,
+			created_at
 	`
 
-	_, err := db.ExecContext(
+	err := db.QueryRowContext(
 		ctx,
 		query,
 		fromAccountID,
@@ -44,9 +53,22 @@ func (t *TransactionStore) CreateTransaction(
 		transactionType,
 		transactionStatus,
 		idempotencyKey,
+	).Scan(
+		&tx.ID,
+		&tx.FromAccountID,
+		&tx.ToAccountID,
+		&tx.Amount,
+		&tx.TransactionType,
+		&tx.Status,
+		&tx.IdempotencyKey,
+		&tx.CreatedAt,
 	)
 
-	return err
+	if err != nil {
+		return nil, err
+	}
+
+	return &tx, nil
 }
 
 func (t *TransactionStore) GetTransactions(
