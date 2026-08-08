@@ -236,7 +236,7 @@ func (s *AccountService) Deposit(ctx context.Context, accountID, userID, amount 
 
 	depositCompletedEvent := kafka.DepositCompletedEvent{
 		TransactionID:   transaction.ID,
-		AccountID:       *transaction.FromAccountID,
+		AccountID:       *transaction.ToAccountID,
 		TransactionType: transaction.TransactionType,
 		Amount:          transaction.Amount,
 		OccurredAt:      transaction.CreatedAt,

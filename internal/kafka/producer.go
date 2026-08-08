@@ -43,6 +43,7 @@ func (p *Producer) Publish(ctx context.Context, topic string, key int, event any
 		return err
 	}
 	msg := kafkago.Message{
+		Topic: topic,
 		Key:   keyByte,
 		Value: data,
 	}
